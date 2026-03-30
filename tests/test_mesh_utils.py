@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mj_viser.mesh_utils import make_capsule_mesh, make_ellipsoid_mesh
 

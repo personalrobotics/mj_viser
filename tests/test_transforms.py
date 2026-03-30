@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 
 import numpy as np
-import pytest
 
 from mj_viser.transforms import mj_pos_to_viser, xmat_to_wxyz
 

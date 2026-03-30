@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 
 import mujoco
-import numpy as np
 import viser
 
 from mj_viser.geom_builders import GEOM_BUILDERS
