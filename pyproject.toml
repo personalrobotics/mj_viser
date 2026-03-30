@@ -17,8 +17,10 @@ dev = [
     "pytest-cov",
     "ruff",
     "mypy",
-    "mujoco-menagerie",
 ]
+
+[tool.uv.sources]
+mujoco-menagerie = { git = "https://github.com/google-deepmind/mujoco_menagerie.git" }
 
 [build-system]
 requires = ["hatchling"]
