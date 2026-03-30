@@ -12,3 +12,4 @@ build/
 .ruff_cache/
 *.so
 .DS_Store
+mujoco_menagerie/
