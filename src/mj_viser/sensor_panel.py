@@ -55,6 +55,7 @@ class SensorPanel(PanelBase):
         max_points: int = 500,
         y_label: str = "",
         aspect: float = 1.5,
+        use_folder: bool = True,
     ) -> None:
         self._title = title
         self._channels = channels or []
@@ -62,6 +63,7 @@ class SensorPanel(PanelBase):
         self._max_points = max_points
         self._y_label = y_label
         self._aspect = aspect
+        self._use_folder = use_folder
 
         # Ring buffers
         self._times: deque[float] = deque(maxlen=max_points)
@@ -76,7 +78,11 @@ class SensorPanel(PanelBase):
         return self._title
 
     def setup(self, gui: viser.GuiApi, viewer: MujocoViewer) -> None:
-        with gui.add_folder(self._title, order=5):
+        import contextlib
+        ctx = gui.add_folder(self._title, order=5) if self._use_folder else contextlib.nullcontext()
+        with ctx:
+            if not self._use_folder:
+                gui.add_markdown(f"**{self._title}**")
             # Time axis series + one per channel
             series = (
                 uplot.Series(label="Time"),
