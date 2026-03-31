@@ -75,13 +75,14 @@ class SensorPanel(PanelBase):
 
     def setup(self, gui: viser.GuiApi, viewer: MujocoViewer) -> None:
         with gui.add_folder(self._title, order=5):
-            # Initial empty plot
-            series = tuple(
-                uplot.Series(label=ch.label, stroke=ch.color)
-                for ch in self._channels
+            # Initial empty plot — first series is always the time axis
+            series = (
+                uplot.Series(label="Time"),
+                *(uplot.Series(label=ch.label, stroke=ch.color)
+                  for ch in self._channels),
             )
-            empty = np.zeros((1, 0), dtype=np.float64)
-            data = tuple([empty[0]] * (1 + len(self._channels)))
+            empty = np.zeros(0, dtype=np.float64)
+            data = tuple([empty] * (1 + len(self._channels)))
             self._plot = gui.add_uplot(
                 data=data,
                 series=series,
