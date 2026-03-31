@@ -144,6 +144,7 @@ def build_mesh(
         color=_resolve_color(model, geom_id),
         opacity=_resolve_opacity(model, geom_id),
         flat_shading=False,
+        side="double",  # Render both sides (STL meshes may have inverted normals)
     )
 
 
