@@ -179,16 +179,32 @@ def extract_mujoco_mesh_textured(
             # Per-vertex UVs — use directly
             texcoords = raw_tc
         else:
-            # Per-face-vertex UVs — unpack by duplicating vertices so each
-            # face corner gets its own vertex with unique UV.
+            # Per-face-vertex UVs stored as quad corners: 4 texcoords per pair
+            # of triangulated faces. Unpack by duplicating vertices.
             face_num = model.mesh_facenum[mesh_id]
-            face_adr = model.mesh_faceadr[mesh_id]
-            raw_faces = model.mesh_face[face_adr : face_adr + face_num]
+            n_quads = face_num // 2
 
-            new_verts = verts[raw_faces.flatten()]  # (F*3, 3)
-            texcoords = raw_tc[: face_num * 3]  # MuJoCo stores F*3 texcoords
-            faces = np.arange(face_num * 3, dtype=np.int32).reshape(-1, 3)
-            verts = new_verts.astype(np.float32)
+            if tc_num == n_quads * 4:
+                # Quad-based UV layout: each quad has 4 texcoords
+                # Face 2q uses tc [4q, 4q+1, 4q+2], face 2q+1 uses [4q, 4q+2, 4q+3]
+                tc_indices = []
+                for q in range(n_quads):
+                    base = q * 4
+                    tc_indices.extend([base, base + 1, base + 2])  # tri 0
+                    tc_indices.extend([base, base + 2, base + 3])  # tri 1
+                # Handle any remaining odd triangle
+                if face_num % 2 == 1:
+                    base = n_quads * 4
+                    tc_indices.extend([base, base + 1, base + 2])
+
+                tc_per_face_vert = raw_tc[tc_indices]  # (F*3, 2)
+                new_verts = verts[faces.flatten()]  # (F*3, 3)
+                texcoords = tc_per_face_vert.astype(np.float32)
+                faces = np.arange(face_num * 3, dtype=np.int32).reshape(-1, 3)
+                verts = new_verts.astype(np.float32)
+            else:
+                # Unknown layout — skip texturing
+                texcoords = None
 
     # Flip V coordinate: MuJoCo uses top-left origin, OpenGL uses bottom-left
     if texcoords is not None:
