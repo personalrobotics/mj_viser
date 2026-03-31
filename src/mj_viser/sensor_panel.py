@@ -94,7 +94,7 @@ class SensorPanel(PanelBase):
                 data=data,
                 series=series,
                 axes=(
-                    uplot.Axis(size=20),
+                    uplot.Axis(size=28),
                     uplot.Axis(size=30, label=self._y_label if self._y_label else None),
                 ),
                 legend=uplot.Legend(show=False),
