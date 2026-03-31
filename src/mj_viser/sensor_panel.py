@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
-import plotly.graph_objects as go
 import viser
+from viser import uplot
 
 from mj_viser.panels import PanelBase
 from mj_viser.viewer import MujocoViewer
@@ -28,7 +28,7 @@ class SensorChannel:
 
 
 class SensorPanel(PanelBase):
-    """Real-time scrolling plot of MuJoCo sensor data using Plotly.
+    """Real-time scrolling plot of MuJoCo sensor data using uPlot.
 
     Reads from ``data.sensordata`` at the given indices on each sync() call
     and plots the values as a time series.
@@ -53,15 +53,15 @@ class SensorPanel(PanelBase):
         channels: list[SensorChannel] | None = None,
         window_seconds: float = 10.0,
         max_points: int = 500,
-        height: int = 150,
         y_label: str = "",
+        aspect: float = 1.5,
     ) -> None:
         self._title = title
         self._channels = channels or []
         self._window_seconds = window_seconds
         self._max_points = max_points
-        self._height = height
         self._y_label = y_label
+        self._aspect = aspect
 
         # Ring buffers
         self._times: deque[float] = deque(maxlen=max_points)
@@ -69,46 +69,52 @@ class SensorPanel(PanelBase):
             ch.index: deque(maxlen=max_points) for ch in self._channels
         }
 
-        self._plot: viser.GuiPlotlyHandle | None = None
+        self._plot: viser.GuiUplotHandle | None = None
         self._start_time: float | None = None
-        self._update_counter = 0
 
     def name(self) -> str:
         return self._title
 
     def setup(self, gui: viser.GuiApi, viewer: MujocoViewer) -> None:
         with gui.add_folder(self._title, order=5):
-            fig = self._make_figure()
-            self._plot = gui.add_plotly(fig, aspect=1.0)
+            # Time axis series + one per channel
+            series = (
+                uplot.Series(label="Time"),
+                *(uplot.Series(
+                    label=ch.label,
+                    stroke=ch.color,
+                    width=1,
+                ) for ch in self._channels),
+            )
 
-            # Compact inline legend below the plot
+            empty = np.zeros(0, dtype=np.float64)
+            data = tuple([empty] * (1 + len(self._channels)))
+
+            self._plot = gui.add_uplot(
+                data=data,
+                series=series,
+                axes=(
+                    uplot.Axis(size=20),
+                    uplot.Axis(size=30, label=self._y_label if self._y_label else None),
+                ),
+                legend=uplot.Legend(show=False),
+                aspect=self._aspect,
+            )
+
+            # Compact inline legend
             legend_items = " ".join(
-                f'<span style="margin-right:8px;">'
-                f'<span style="display:inline-block;width:10px;height:10px;'
-                f'background:{ch.color};border-radius:2px;margin-right:3px;'
+                f'<span style="margin-right:6px;">'
+                f'<span style="display:inline-block;width:8px;height:8px;'
+                f'background:{ch.color};border-radius:1px;margin-right:2px;'
                 f'vertical-align:middle;"></span>'
-                f'<span style="font-size:11px;color:#555;">{ch.label}</span>'
+                f'<span style="font-size:10px;color:#666;">{ch.label}</span>'
                 f'</span>'
                 for ch in self._channels
             )
-            gui.add_html(
-                f'<div style="padding:2px 4px;">{legend_items}</div>'
-            )
+            gui.add_html(f'<div style="padding:0 2px;">{legend_items}</div>')
 
     def on_sync(self, viewer: MujocoViewer) -> None:
         if self._plot is None or not self._channels:
-            return
-
-        # Only update every 15th sync (~2Hz at 30fps) to reduce jitter
-        self._update_counter += 1
-        if self._update_counter % 15 != 0:
-            # Still record data, just don't send the plot update
-            t = float(viewer.data.time)
-            if self._start_time is None:
-                self._start_time = t
-            self._times.append(t - self._start_time)
-            for ch in self._channels:
-                self._data[ch.index].append(float(viewer.data.sensordata[ch.index]))
             return
 
         t = float(viewer.data.time)
@@ -116,49 +122,24 @@ class SensorPanel(PanelBase):
             self._start_time = t
         elapsed = t - self._start_time
 
+        # Record data
         self._times.append(elapsed)
         for ch in self._channels:
             self._data[ch.index].append(float(viewer.data.sensordata[ch.index]))
 
-        self._plot.figure = self._make_figure(populated=True, now=elapsed)
+        # Build windowed arrays
+        times_arr = np.array(self._times, dtype=np.float64)
+        cutoff = elapsed - self._window_seconds
+        mask = times_arr >= cutoff
+        t_win = times_arr[mask]
 
-    def _make_figure(self, populated: bool = False, now: float = 0.0) -> go.Figure:
-        fig = go.Figure()
-
-        if populated:
-            times = np.array(self._times)
-            cutoff = now - self._window_seconds
-            mask = times >= cutoff
-            t = times[mask]
-
-            for ch in self._channels:
-                vals = np.array(self._data[ch.index])[mask]
-                fig.add_trace(go.Scatter(
-                    x=t, y=vals,
-                    name=ch.label,
-                    line=dict(color=ch.color, width=1.5),
-                    hoverinfo="skip",
-                ))
-
-        fig.update_layout(
-            margin=dict(l=35, r=5, t=5, b=25),
-            height=self._height,
-            showlegend=False,
-            plot_bgcolor="white",
-            modebar_remove=["resetScale2d", "autoScale2d", "toImage",
-                           "lasso2d", "select2d", "zoom2d", "pan2d",
-                           "zoomIn2d", "zoomOut2d"],
-            xaxis=dict(
-                showgrid=True, gridcolor="#eee", zeroline=False,
-                tickfont=dict(size=9),
-            ),
-            yaxis=dict(
-                title=dict(text=self._y_label, font=dict(size=10)) if self._y_label else None,
-                showgrid=True, gridcolor="#eee", zeroline=True, zerolinecolor="#ccc",
-                tickfont=dict(size=9),
-            ),
+        channel_arrs = tuple(
+            np.array(self._data[ch.index], dtype=np.float64)[mask]
+            for ch in self._channels
         )
-        return fig
+
+        # uplot data update — just swap arrays, no DOM rebuild
+        self._plot.data = (t_win, *channel_arrs)
 
     def reset(self) -> None:
         """Clear all recorded data."""
