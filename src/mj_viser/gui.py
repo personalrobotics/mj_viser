@@ -56,9 +56,9 @@ class GuiManager:
 
         # --- Visibility toggles (only for groups that have geoms) ---
         self._visibility_callback: list = []  # [(callable)] set by viewer
+        self._group_toggles: dict[int, viser.GuiCheckboxHandle] = {}
         if show_visibility:
             with gui.add_folder("Visibility", order=1):
-                self._group_toggles: dict[int, viser.GuiCheckboxHandle] = {}
                 for g in sorted(used_groups):
                     # MuJoCo default: groups 0-2 visible, groups 3-5 hidden
                     toggle = gui.add_checkbox(f"Group {g}", initial_value=(g <= 2))
