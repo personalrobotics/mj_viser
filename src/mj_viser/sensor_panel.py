@@ -91,7 +91,21 @@ class SensorPanel(PanelBase):
                     uplot.Axis(label=self._y_label, size=40),
                 ),
                 legend=uplot.Legend(show=False),
-                aspect=3.0,
+                aspect=2.0,
+            )
+
+            # Compact inline legend below the plot
+            legend_items = " ".join(
+                f'<span style="margin-right:8px;">'
+                f'<span style="display:inline-block;width:10px;height:10px;'
+                f'background:{ch.color};border-radius:2px;margin-right:3px;'
+                f'vertical-align:middle;"></span>'
+                f'<span style="font-size:11px;color:#555;">{ch.label}</span>'
+                f'</span>'
+                for ch in self._channels
+            )
+            gui.add_html(
+                f'<div style="padding:2px 4px;">{legend_items}</div>'
             )
 
     def on_sync(self, viewer: MujocoViewer) -> None:
