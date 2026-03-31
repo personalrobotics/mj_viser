@@ -99,9 +99,9 @@ class SensorPanel(PanelBase):
         if self._plot is None or not self._channels:
             return
 
-        # Only update every 5th sync to reduce WebSocket traffic
+        # Only update every 15th sync (~2Hz at 30fps) to reduce jitter
         self._update_counter += 1
-        if self._update_counter % 5 != 0:
+        if self._update_counter % 15 != 0:
             # Still record data, just don't send the plot update
             t = float(viewer.data.time)
             if self._start_time is None:
