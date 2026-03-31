@@ -6,8 +6,8 @@ from collections import deque
 from dataclasses import dataclass, field
 
 import numpy as np
+import plotly.graph_objects as go
 import viser
-from viser import uplot
 
 from mj_viser.panels import PanelBase
 from mj_viser.viewer import MujocoViewer
@@ -28,7 +28,7 @@ class SensorChannel:
 
 
 class SensorPanel(PanelBase):
-    """Real-time scrolling plot of MuJoCo sensor data.
+    """Real-time scrolling plot of MuJoCo sensor data using Plotly.
 
     Reads from ``data.sensordata`` at the given indices on each sync() call
     and plots the values as a time series.
@@ -53,46 +53,33 @@ class SensorPanel(PanelBase):
         channels: list[SensorChannel] | None = None,
         window_seconds: float = 10.0,
         max_points: int = 500,
-        y_label: str = "Value",
+        height: int = 150,
+        y_label: str = "",
     ) -> None:
         self._title = title
         self._channels = channels or []
         self._window_seconds = window_seconds
         self._max_points = max_points
+        self._height = height
         self._y_label = y_label
 
-        # Ring buffers for time + each channel
+        # Ring buffers
         self._times: deque[float] = deque(maxlen=max_points)
         self._data: dict[int, deque[float]] = {
             ch.index: deque(maxlen=max_points) for ch in self._channels
         }
 
-        self._plot: viser.GuiUplotHandle | None = None
+        self._plot: viser.GuiPlotlyHandle | None = None
         self._start_time: float | None = None
+        self._update_counter = 0
 
     def name(self) -> str:
         return self._title
 
     def setup(self, gui: viser.GuiApi, viewer: MujocoViewer) -> None:
         with gui.add_folder(self._title, order=5):
-            # Initial empty plot — first series is always the time axis
-            series = (
-                uplot.Series(label="Time"),
-                *(uplot.Series(label=ch.label, stroke=ch.color)
-                  for ch in self._channels),
-            )
-            empty = np.zeros(0, dtype=np.float64)
-            data = tuple([empty] * (1 + len(self._channels)))
-            self._plot = gui.add_uplot(
-                data=data,
-                series=series,
-                axes=(
-                    uplot.Axis(label="Time (s)"),
-                    uplot.Axis(label=self._y_label, size=40),
-                ),
-                legend=uplot.Legend(show=False),
-                aspect=2.0,
-            )
+            fig = self._make_figure()
+            self._plot = gui.add_plotly(fig, aspect=1.0)
 
             # Compact inline legend below the plot
             legend_items = " ".join(
@@ -112,37 +99,63 @@ class SensorPanel(PanelBase):
         if self._plot is None or not self._channels:
             return
 
-        # Record current time relative to start
+        # Only update every 5th sync to reduce WebSocket traffic
+        self._update_counter += 1
+        if self._update_counter % 5 != 0:
+            # Still record data, just don't send the plot update
+            t = float(viewer.data.time)
+            if self._start_time is None:
+                self._start_time = t
+            self._times.append(t - self._start_time)
+            for ch in self._channels:
+                self._data[ch.index].append(float(viewer.data.sensordata[ch.index]))
+            return
+
         t = float(viewer.data.time)
         if self._start_time is None:
             self._start_time = t
         elapsed = t - self._start_time
 
-        # Sample sensor data
         self._times.append(elapsed)
         for ch in self._channels:
-            val = float(viewer.data.sensordata[ch.index])
-            self._data[ch.index].append(val)
+            self._data[ch.index].append(float(viewer.data.sensordata[ch.index]))
 
-        # Build arrays for uplot: (time, ch0, ch1, ...)
-        times_arr = np.array(self._times, dtype=np.float64)
+        self._plot.figure = self._make_figure(populated=True, now=elapsed)
 
-        # Trim to window
-        if len(times_arr) > 1:
-            cutoff = elapsed - self._window_seconds
-            mask = times_arr >= cutoff
-            times_arr = times_arr[mask]
-            channel_arrs = tuple(
-                np.array(self._data[ch.index], dtype=np.float64)[mask]
-                for ch in self._channels
-            )
-        else:
-            channel_arrs = tuple(
-                np.array(self._data[ch.index], dtype=np.float64)
-                for ch in self._channels
-            )
+    def _make_figure(self, populated: bool = False, now: float = 0.0) -> go.Figure:
+        fig = go.Figure()
 
-        self._plot.data = (times_arr, *channel_arrs)
+        if populated:
+            times = np.array(self._times)
+            cutoff = now - self._window_seconds
+            mask = times >= cutoff
+            t = times[mask]
+
+            for ch in self._channels:
+                vals = np.array(self._data[ch.index])[mask]
+                fig.add_trace(go.Scatter(
+                    x=t, y=vals,
+                    name=ch.label,
+                    line=dict(color=ch.color, width=1.5),
+                    hoverinfo="skip",
+                ))
+
+        fig.update_layout(
+            margin=dict(l=35, r=5, t=5, b=25),
+            height=self._height,
+            showlegend=False,
+            plot_bgcolor="white",
+            xaxis=dict(
+                showgrid=True, gridcolor="#eee", zeroline=False,
+                tickfont=dict(size=9),
+            ),
+            yaxis=dict(
+                title=dict(text=self._y_label, font=dict(size=10)) if self._y_label else None,
+                showgrid=True, gridcolor="#eee", zeroline=True, zerolinecolor="#ccc",
+                tickfont=dict(size=9),
+            ),
+        )
+        return fig
 
     def reset(self) -> None:
         """Clear all recorded data."""
