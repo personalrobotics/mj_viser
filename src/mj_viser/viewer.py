@@ -42,12 +42,17 @@ class MujocoViewer:
         host: str = "0.0.0.0",
         port: int = 8080,
         show_gui: bool = True,
+        show_sim_controls: bool | None = None,
+        show_visibility: bool | None = None,
     ) -> None:
         self._model = model
         self._data = data
         self._host = host
         self._port = port
         self._show_gui = show_gui
+        # None = inherit from show_gui
+        self._show_sim_controls = show_sim_controls if show_sim_controls is not None else show_gui
+        self._show_visibility = show_visibility if show_visibility is not None else show_gui
         self._running = False
         self._sim_thread: threading.Thread | None = None
         self._panels: list[PanelBase] = []
@@ -152,8 +157,12 @@ class MujocoViewer:
         mujoco.mj_forward(self._model, self._data)
         self._scene_mgr.build_scene()
 
-        if self._show_gui:
-            self._gui_mgr = GuiManager(self._server, self._model)
+        if self._show_gui or self._show_visibility:
+            self._gui_mgr = GuiManager(
+                self._server, self._model,
+                show_sim_controls=self._show_sim_controls,
+                show_visibility=self._show_visibility,
+            )
             # Apply initial group visibility (groups 3+ hidden by default)
             self._scene_mgr.update_visibility(self._gui_mgr.visible_groups())
             # Wire visibility toggles to update immediately (no sync needed)
