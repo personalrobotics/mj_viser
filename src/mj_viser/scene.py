@@ -90,7 +90,7 @@ class SceneManager:
                 else:
                     # Only show if not underground (hidden by registry)
                     pos = self._data.geom_xpos[geom_id]
-                    handle.visible = pos[2] >= -0.5
+                    handle.visible = bool(pos[2] >= -0.5)
 
     def _setup_lighting(self) -> None:
         """Create a clean three-point lighting setup."""
