@@ -88,9 +88,10 @@ class SensorPanel(PanelBase):
                 series=series,
                 axes=(
                     uplot.Axis(label="Time (s)"),
-                    uplot.Axis(label=self._y_label),
+                    uplot.Axis(label=self._y_label, size=40),
                 ),
-                aspect=2.5,
+                legend=uplot.Legend(show=False),
+                aspect=3.0,
             )
 
     def on_sync(self, viewer: MujocoViewer) -> None:
