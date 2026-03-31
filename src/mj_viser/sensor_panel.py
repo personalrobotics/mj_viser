@@ -89,8 +89,7 @@ class SensorPanel(PanelBase):
                 *(uplot.Series(
                     label=ch.label,
                     stroke=ch.color,
-                    width=1,
-                    points=uplot.Series_Points(show=False),
+                    width=2,
                 ) for ch in self._channels),
             )
 
