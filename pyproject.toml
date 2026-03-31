@@ -9,6 +9,7 @@ dependencies = [
     "mujoco>=3.0",
     "viser>=0.2.0",
     "numpy",
+    "plotly>=5.0",
 ]
 
 [project.optional-dependencies]

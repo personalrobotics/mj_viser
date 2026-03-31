@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 import viser
@@ -28,7 +28,7 @@ class SensorChannel:
 
 
 class SensorPanel(PanelBase):
-    """Real-time scrolling plot of MuJoCo sensor data.
+    """Real-time scrolling plot of MuJoCo sensor data using uPlot.
 
     Reads from ``data.sensordata`` at the given indices on each sync() call
     and plots the values as a time series.
@@ -53,15 +53,17 @@ class SensorPanel(PanelBase):
         channels: list[SensorChannel] | None = None,
         window_seconds: float = 10.0,
         max_points: int = 500,
-        y_label: str = "Value",
+        y_label: str = "",
+        aspect: float = 1.5,
     ) -> None:
         self._title = title
         self._channels = channels or []
         self._window_seconds = window_seconds
         self._max_points = max_points
         self._y_label = y_label
+        self._aspect = aspect
 
-        # Ring buffers for time + each channel
+        # Ring buffers
         self._times: deque[float] = deque(maxlen=max_points)
         self._data: dict[int, deque[float]] = {
             ch.index: deque(maxlen=max_points) for ch in self._channels
@@ -75,58 +77,69 @@ class SensorPanel(PanelBase):
 
     def setup(self, gui: viser.GuiApi, viewer: MujocoViewer) -> None:
         with gui.add_folder(self._title, order=5):
-            # Initial empty plot
-            series = tuple(
-                uplot.Series(label=ch.label, stroke=ch.color)
-                for ch in self._channels
+            # Time axis series + one per channel
+            series = (
+                uplot.Series(label="Time"),
+                *(uplot.Series(
+                    label=ch.label,
+                    stroke=ch.color,
+                    width=1,
+                ) for ch in self._channels),
             )
-            empty = np.zeros((1, 0), dtype=np.float64)
-            data = tuple([empty[0]] * (1 + len(self._channels)))
+
+            empty = np.zeros(0, dtype=np.float64)
+            data = tuple([empty] * (1 + len(self._channels)))
+
             self._plot = gui.add_uplot(
                 data=data,
                 series=series,
                 axes=(
-                    uplot.Axis(label="Time (s)"),
-                    uplot.Axis(label=self._y_label),
+                    uplot.Axis(size=28),
+                    uplot.Axis(size=30, label=self._y_label if self._y_label else None),
                 ),
-                aspect=2.5,
+                legend=uplot.Legend(show=False),
+                aspect=self._aspect,
             )
+
+            # Compact inline legend
+            legend_items = " ".join(
+                f'<span style="margin-right:6px;">'
+                f'<span style="display:inline-block;width:8px;height:8px;'
+                f'background:{ch.color};border-radius:1px;margin-right:2px;'
+                f'vertical-align:middle;"></span>'
+                f'<span style="font-size:10px;color:#666;">{ch.label}</span>'
+                f'</span>'
+                for ch in self._channels
+            )
+            gui.add_html(f'<div style="padding:0 2px;">{legend_items}</div>')
 
     def on_sync(self, viewer: MujocoViewer) -> None:
         if self._plot is None or not self._channels:
             return
 
-        # Record current time relative to start
         t = float(viewer.data.time)
         if self._start_time is None:
             self._start_time = t
         elapsed = t - self._start_time
 
-        # Sample sensor data
+        # Record data
         self._times.append(elapsed)
         for ch in self._channels:
-            val = float(viewer.data.sensordata[ch.index])
-            self._data[ch.index].append(val)
+            self._data[ch.index].append(float(viewer.data.sensordata[ch.index]))
 
-        # Build arrays for uplot: (time, ch0, ch1, ...)
+        # Build windowed arrays
         times_arr = np.array(self._times, dtype=np.float64)
+        cutoff = elapsed - self._window_seconds
+        mask = times_arr >= cutoff
+        t_win = times_arr[mask]
 
-        # Trim to window
-        if len(times_arr) > 1:
-            cutoff = elapsed - self._window_seconds
-            mask = times_arr >= cutoff
-            times_arr = times_arr[mask]
-            channel_arrs = tuple(
-                np.array(self._data[ch.index], dtype=np.float64)[mask]
-                for ch in self._channels
-            )
-        else:
-            channel_arrs = tuple(
-                np.array(self._data[ch.index], dtype=np.float64)
-                for ch in self._channels
-            )
+        channel_arrs = tuple(
+            np.array(self._data[ch.index], dtype=np.float64)[mask]
+            for ch in self._channels
+        )
 
-        self._plot.data = (times_arr, *channel_arrs)
+        # uplot data update — just swap arrays, no DOM rebuild
+        self._plot.data = (t_win, *channel_arrs)
 
     def reset(self) -> None:
         """Clear all recorded data."""
