@@ -120,4 +120,7 @@ class GuiManager:
 
     def visible_groups(self) -> set[int]:
         """Return the set of currently visible geom group indices."""
+        if not self._group_toggles:
+            # No visibility panel — default: groups 0-2 visible
+            return {0, 1, 2}
         return {g for g, toggle in self._group_toggles.items() if toggle.value}
