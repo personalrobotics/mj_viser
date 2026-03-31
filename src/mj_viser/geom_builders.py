@@ -120,18 +120,12 @@ def build_mesh(
     # Use textured mesh if UV + texture data available
     if texcoords is not None and texture_rgb is not None and len(texcoords) == len(verts):
         import trimesh
-        import trimesh.visual
+        from PIL import Image
 
-        material = trimesh.visual.material.PBRMaterial(
-            baseColorTexture=trimesh.visual.texture.TextureVisuals(
-                uv=texcoords,
-                image=__import__("PIL").Image.fromarray(texture_rgb),
-            ).material.image,
-        )
-        mesh = trimesh.Trimesh(
-            vertices=verts, faces=faces,
-            visual=trimesh.visual.TextureVisuals(uv=texcoords, material=material),
-        )
+        image = Image.fromarray(texture_rgb)
+        material = trimesh.visual.material.SimpleMaterial(image=image)
+        visual = trimesh.visual.TextureVisuals(uv=texcoords, material=material)
+        mesh = trimesh.Trimesh(vertices=verts, faces=faces, visual=visual)
         return scene.add_mesh_trimesh(
             _geom_name(geom_id),
             mesh=mesh,

@@ -57,10 +57,19 @@ class SceneManager:
         self.update_transforms()
 
     def update_transforms(self) -> None:
-        """Update all geom positions and orientations from current MjData state."""
+        """Update all geom positions and orientations from current MjData state.
+
+        Geoms below z = -0.5 are hidden (MuJoCo convention for deactivated objects).
+        """
         with self._server.atomic():
             for geom_id, handle in self._geom_handles.items():
-                handle.position = mj_pos_to_viser(self._data.geom_xpos[geom_id])
+                pos = self._data.geom_xpos[geom_id]
+                # Hide objects that have been moved underground (deactivated)
+                if pos[2] < -0.5:
+                    handle.visible = False
+                    continue
+                handle.visible = True
+                handle.position = mj_pos_to_viser(pos)
                 handle.wxyz = xmat_to_wxyz(self._data.geom_xmat[geom_id])
 
     def update_visibility(self, visible_groups: set[int]) -> None:
