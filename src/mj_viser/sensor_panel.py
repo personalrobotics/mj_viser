@@ -145,6 +145,9 @@ class SensorPanel(PanelBase):
             height=self._height,
             showlegend=False,
             plot_bgcolor="white",
+            modebar_remove=["resetScale2d", "autoScale2d", "toImage",
+                           "lasso2d", "select2d", "zoom2d", "pan2d",
+                           "zoomIn2d", "zoomOut2d"],
             xaxis=dict(
                 showgrid=True, gridcolor="#eee", zeroline=False,
                 tickfont=dict(size=9),
