@@ -8,17 +8,22 @@ Web-based MuJoCo viewer built on [Viser](https://github.com/nerfstudio-project/v
 
 ## Features
 
-- **Interactive simulation** — play, pause, step, reset, and speed control from the browser
 - **All primitive geom types** — box, sphere, cylinder, capsule, ellipsoid, and mesh
+- **Textures** — PBR materials, per-face-vertex UV mapping, STL double-sided rendering
 - **Two API modes** — built-in simulation loop or user-controlled sync
 - **Extensible panels** — add custom GUI panels for sensors, cameras, controls, etc.
+- **Sensor plots** — built-in `SensorPanel` with real-time scrolling time series (uPlot)
+- **HUD overlay** — fixed-positioned status text over the 3D viewport
+- **Click-to-select** — click any geom to show its body name; label follows the object
+- **Visibility groups** — toggle MuJoCo geom groups on/off
+- **Granular GUI control** — show/hide simulation controls and visibility panel independently
 - **Multi-client** — multiple browser tabs viewing the same simulation
 - **Beautiful rendering** — three-point lighting, proper materials, transparency support
 
 ## Installation
 
 ```bash
-git clone https://github.com/siddhss5/mj_viser.git
+git clone https://github.com/personalrobotics/mj_viser.git
 cd mj_viser
 pip install -e .
 ```
@@ -56,26 +61,64 @@ while viewer.is_running():
     viewer.sync()
 ```
 
+### Sensor plots
+
+```python
+from mj_viser import MujocoViewer, SensorPanel, SensorChannel
+
+viewer = MujocoViewer(model, data)
+viewer.add_panel(SensorPanel(
+    title="Wrist F/T",
+    channels=[
+        SensorChannel(0, "Fx", "#e74c3c"),
+        SensorChannel(1, "Fy", "#2ecc71"),
+        SensorChannel(2, "Fz", "#3498db"),
+    ],
+    window_seconds=5.0,
+))
+viewer.launch()
+```
+
+### HUD overlay
+
+```python
+viewer.set_hud("status", "L: [13N] can_0 | R: — | physics", "bottom-left")
+```
+
+### Click-to-select
+
+```python
+# Labels appear automatically on click. Register a callback for custom behavior:
+viewer.on_select(lambda geom_id, body_name: print(f"Selected: {body_name}"))
+```
+
 ### Custom panels
 
 ```python
-import viser
 from mj_viser import MujocoViewer, PanelBase
+import viser
 
-class SensorPanel(PanelBase):
+class MyPanel(PanelBase):
     def name(self) -> str:
-        return "Sensors"
+        return "My Panel"
 
     def setup(self, gui: viser.GuiApi, viewer: MujocoViewer) -> None:
         with gui.add_folder(self.name()):
-            self._readout = gui.add_text("Force", initial_value="", disabled=True)
+            self._text = gui.add_text("Status", initial_value="", disabled=True)
 
     def on_sync(self, viewer: MujocoViewer) -> None:
-        self._readout.value = f"{viewer.data.sensordata[0:3]}"
+        self._text.value = f"Time: {viewer.data.time:.2f}"
 
 viewer = MujocoViewer(model, data)
-viewer.add_panel(SensorPanel())
+viewer.add_panel(MyPanel())
 viewer.launch()
+```
+
+### Granular GUI control
+
+```python
+# Disable built-in panels for apps that manage their own GUI
+viewer = MujocoViewer(model, data, show_sim_controls=False, show_visibility=False)
 ```
 
 ## Examples
@@ -97,7 +140,7 @@ uv run python examples/custom_panel.py mujoco_menagerie/unitree_g1/scene.xml
 ## Development
 
 ```bash
-git clone https://github.com/siddhss5/mj_viser.git
+git clone https://github.com/personalrobotics/mj_viser.git
 cd mj_viser
 uv sync --all-extras
 uv run pytest
