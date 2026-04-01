@@ -122,6 +122,10 @@ class MujocoViewer:
             self._huds[name].remove()
             del self._huds[name]
 
+    def on_select(self, callback) -> None:
+        """Register a callback for geom selection: callback(geom_id, body_name)."""
+        self._scene_mgr.on_select(callback)
+
     def add_panel(self, panel: PanelBase) -> None:
         """Register a custom GUI panel.
 
