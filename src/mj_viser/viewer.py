@@ -60,6 +60,7 @@ class MujocoViewer:
         self._server = viser.ViserServer(host=host, port=port)
         self._scene_mgr = SceneManager(self._server, model, data)
         self._gui_mgr: GuiManager | None = None
+        self._huds: dict[str, viser.GuiHtmlHandle] = {}
 
     @property
     def model(self) -> mujoco.MjModel:
@@ -75,6 +76,51 @@ class MujocoViewer:
     def server(self) -> viser.ViserServer:
         """The underlying Viser server, for advanced usage."""
         return self._server
+
+    def set_hud(
+        self,
+        name: str,
+        content: str,
+        position: str = "bottom-left",
+    ) -> None:
+        """Set or update an HTML overlay on the 3D viewport.
+
+        Creates a fixed-positioned HTML element that overlays the canvas,
+        outside the sidebar. Multiple HUDs can coexist with different names.
+
+        Args:
+            name: Unique identifier for this HUD element.
+            content: HTML content to display.
+            position: One of "top-left", "top-right", "bottom-left",
+                "bottom-right", "top", "bottom".
+        """
+        css_pos = {
+            "top-left": "top:8px;left:8px;",
+            "top-right": "top:8px;right:320px;",
+            "bottom-left": "bottom:8px;left:8px;",
+            "bottom-right": "bottom:8px;right:320px;",
+            "top": "top:8px;left:50%;transform:translateX(-50%);",
+            "bottom": "bottom:8px;left:50%;transform:translateX(-50%);",
+        }.get(position, "bottom-left:8px;left:8px;")
+
+        html = (
+            f'<div style="position:fixed;{css_pos}z-index:1000;'
+            f'background:rgba(0,0,0,0.7);color:white;padding:4px 10px;'
+            f'border-radius:4px;font-family:monospace;font-size:12px;'
+            f'pointer-events:none;white-space:nowrap;">'
+            f'{content}</div>'
+        )
+
+        if name in self._huds:
+            self._huds[name].content = html
+        else:
+            self._huds[name] = self._server.gui.add_html(html)
+
+    def remove_hud(self, name: str) -> None:
+        """Remove an HUD overlay."""
+        if name in self._huds:
+            self._huds[name].remove()
+            del self._huds[name]
 
     def add_panel(self, panel: PanelBase) -> None:
         """Register a custom GUI panel.
