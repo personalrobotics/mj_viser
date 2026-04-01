@@ -81,6 +81,17 @@ class SceneManager:
                 group = int(self._model.geom_group[geom_id])
                 handle.visible = group not in self._hidden_groups and float(pos[2]) >= -0.5
 
+            # Move selection label with the selected geom
+            if self._selected_geom is not None and self._label_handle is not None:
+                pos = self._data.geom_xpos[self._selected_geom]
+                if float(pos[2]) < -0.5:
+                    self._clear_label()
+                    self._selected_geom = None
+                else:
+                    self._label_handle.position = tuple(
+                        p + o for p, o in zip(mj_pos_to_viser(pos), (0, 0, 0.05))
+                    )
+
     def update_visibility(self, visible_groups: set[int]) -> None:
         """Toggle geom visibility based on MuJoCo geom groups."""
         all_groups = {int(self._model.geom_group[gid]) for gid in self._geom_handles}
