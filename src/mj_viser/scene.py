@@ -150,6 +150,11 @@ class SceneManager:
             self._label_handle.remove()
             self._label_handle = None
 
+    def clear_selection(self) -> None:
+        """Clear the current selection and remove the label."""
+        self._clear_label()
+        self._selected_geom = None
+
     def on_select(self, callback) -> None:
         """Register a callback for geom selection: callback(geom_id, body_name)."""
         self._on_select_callbacks.append(callback)
