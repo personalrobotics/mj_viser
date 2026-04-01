@@ -29,6 +29,9 @@ class SceneManager:
         self._data = data
         self._geom_handles: dict[int, viser.SceneNodeHandle] = {}
         self._hidden_groups: set[int] = set()  # groups toggled off by user
+        self._selected_geom: int | None = None
+        self._label_handle: viser.SceneNodeHandle | None = None
+        self._on_select_callbacks: list = []  # [(callable(geom_id, body_name))]
 
     def build_scene(self) -> None:
         """Create Viser scene nodes for all supported MuJoCo geoms."""
@@ -53,6 +56,12 @@ class SceneManager:
                 continue
             handle = builder(scene, geom_id, self._model)
             self._geom_handles[geom_id] = handle
+
+            # Click handler for selection
+            gid = geom_id  # capture for closure
+            @handle.on_click
+            def _(event: viser.ScenePointerEvent, _gid=gid) -> None:
+                self._handle_click(_gid)
 
         # Set initial transforms
         self.update_transforms()
@@ -86,6 +95,53 @@ class SceneManager:
                     # Only show if not underground (hidden by registry)
                     pos = self._data.geom_xpos[geom_id]
                     handle.visible = bool(pos[2] >= -0.5)
+
+    def _handle_click(self, geom_id: int) -> None:
+        """Handle a click on a geom — toggle selection label."""
+        if self._selected_geom == geom_id:
+            # Click same geom again — deselect
+            self._clear_label()
+            self._selected_geom = None
+            return
+
+        self._selected_geom = geom_id
+
+        # Resolve body name
+        body_id = self._model.geom_bodyid[geom_id]
+        body_name = mujoco.mj_id2name(
+            self._model, mujoco.mjtObj.mjOBJ_BODY, body_id,
+        ) or f"body_{body_id}"
+        geom_name = mujoco.mj_id2name(
+            self._model, mujoco.mjtObj.mjOBJ_GEOM, geom_id,
+        ) or f"geom_{geom_id}"
+
+        # Show label at geom position
+        pos = self._data.geom_xpos[geom_id]
+        self._show_label(body_name, pos)
+
+        # Notify callbacks
+        for cb in self._on_select_callbacks:
+            cb(geom_id, body_name)
+
+    def _show_label(self, text: str, position: object) -> None:
+        """Show a 3D label at the given position."""
+        self._clear_label()
+        self._label_handle = self._server.scene.add_label(
+            "/mujoco/selection_label",
+            text=text,
+            wxyz=(1, 0, 0, 0),
+            position=tuple(p + o for p, o in zip(mj_pos_to_viser(position), (0, 0, 0.05))),
+        )
+
+    def _clear_label(self) -> None:
+        """Remove the selection label."""
+        if self._label_handle is not None:
+            self._label_handle.remove()
+            self._label_handle = None
+
+    def on_select(self, callback) -> None:
+        """Register a callback for geom selection: callback(geom_id, body_name)."""
+        self._on_select_callbacks.append(callback)
 
     def _setup_lighting(self) -> None:
         """Create a clean three-point lighting setup."""
