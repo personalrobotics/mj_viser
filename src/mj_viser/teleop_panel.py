@@ -203,6 +203,7 @@ class TeleopPanel(PanelBase):
         gripper_body_prefix: str,
         arm_label: str = "Arm",
         abort_fn: object | None = None,
+        clear_abort_fn: object | None = None,
     ):
         self._arm = arm
         self._controller = controller
@@ -211,6 +212,7 @@ class TeleopPanel(PanelBase):
         self._gripper_prefix = gripper_body_prefix
         self._arm_label = arm_label
         self._abort_fn = abort_fn  # callable → bool, checked in teleop loop
+        self._clear_abort_fn = clear_abort_fn  # callable → None, clears abort
         self._gizmo = None
         self._ghost = None
         self._is_teleop_active = False
@@ -314,6 +316,10 @@ class TeleopPanel(PanelBase):
         pass
 
     def _activate_teleop(self) -> None:
+        # Clear any stale abort from Stop button
+        if self._clear_abort_fn is not None:
+            self._clear_abort_fn()
+
         ee_pose = self._controller.activate()
         self._is_teleop_active = True
 
