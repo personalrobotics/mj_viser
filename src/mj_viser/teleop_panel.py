@@ -280,7 +280,7 @@ class TeleopPanel(PanelBase):
             self._controller.safety_mode = SafetyMode(self._safety_dropdown.value)
 
         # Status label (markdown for colored text)
-        self._status_md = gui.add_markdown("**Status:** Idle")
+        self._status_md = gui.add_markdown("⚪ **Idle**")
 
         # Record button
         self._record_btn = gui.add_button("Record")
@@ -354,7 +354,7 @@ class TeleopPanel(PanelBase):
 
         self._activate_btn.name = f"Activate Teleop ({self._arm_label})"
         self._activate_btn.color = "green"
-        self._status_md.content = "**Status:** Idle"
+        self._status_md.content = "⚪ **Idle**"
 
     def _teleop_loop(self) -> None:
         """Background loop: step controller + sync viewer at ~30 Hz."""
@@ -370,13 +370,13 @@ class TeleopPanel(PanelBase):
                 state = self._controller.step()
                 # Update status label with color
                 if state == TeleopState.TRACKING:
-                    self._status_md.content = "**Status:** ✓ Tracking"
+                    self._status_md.content = "🟢 **Tracking**"
                 elif state == TeleopState.TRACKING_COLLISION:
-                    self._status_md.content = '**Status:** <span style="color:#e74c3c">⚠ Collision</span>'
+                    self._status_md.content = "🔴 **Collision**"
                 elif state == TeleopState.UNREACHABLE:
-                    self._status_md.content = '**Status:** <span style="color:#e67e22">✗ Unreachable</span>'
+                    self._status_md.content = "🟠 **Unreachable**"
                 else:
-                    self._status_md.content = "**Status:** Idle"
+                    self._status_md.content = "⚪ **Idle**"
                 if self._viewer is not None:
                     self._viewer.sync()
             except Exception as e:
@@ -395,4 +395,4 @@ class TeleopPanel(PanelBase):
             self._ghost.set_visible(False)
         self._activate_btn.name = f"Activate Teleop ({self._arm_label})"
         self._activate_btn.color = "green"
-        self._status_md.content = "**Status:** Idle"
+        self._status_md.content = "⚪ **Idle**"
