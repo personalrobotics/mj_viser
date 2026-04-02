@@ -252,7 +252,11 @@ class TeleopPanel(PanelBase):
             ])
             pose[:3, 3] = event.target.position
             self._controller.set_target_pose(pose)
-            print(f"[teleop] gizmo → pos={pose[:3,3]}, state={self._controller.state.value}")
+            # Step immediately — no continuous sync loop in IPython mode
+            state = self._controller.step()
+            # Sync viewer so the arm movement is visible
+            if self._viewer is not None:
+                self._viewer.sync()
 
         # GUI controls
         self._activate_btn = gui.add_button(
