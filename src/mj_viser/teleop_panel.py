@@ -317,10 +317,7 @@ class TeleopPanel(PanelBase):
         """Called each frame. Steps the controller."""
         if not self._is_teleop_active:
             return
-
-        state = self._controller.step()
-        if state.value != "idle":
-            print(f"[teleop] on_sync step → {state.value}")
+        self._controller.step()
 
     def _activate_teleop(self) -> None:
         ee_pose = self._controller.activate()
