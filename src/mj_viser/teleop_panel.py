@@ -219,21 +219,22 @@ class TeleopPanel(PanelBase):
         server = viewer._server
         scene = server.scene
 
-        # Ghost hand (hidden initially)
-        self._ghost = GhostHand(
-            server, self._model, self._data,
-            self._gripper_prefix, self._arm.ee_site_id,
-        )
-
         # Gizmo (hidden initially)
         ee_pose = self._arm.get_ee_pose()
         self._gizmo = scene.add_transform_controls(
             "/teleop/gizmo",
-            scale=0.15,
+            scale=0.3,
             depth_test=False,
             wxyz=xmat_to_wxyz(ee_pose[:3, :3].flatten()),
             position=tuple(ee_pose[:3, 3]),
             visible=False,
+        )
+
+        # Ghost hand as child of gizmo — moves automatically when gizmo moves
+        self._ghost = GhostHand(
+            server, self._model, self._data,
+            self._gripper_prefix, self._arm.ee_site_id,
+            name="/teleop/gizmo/ghost",
         )
 
         # Wire gizmo callbacks
@@ -311,18 +312,13 @@ class TeleopPanel(PanelBase):
                 self._record_btn.name = "Stop Recording"
 
     def on_sync(self, viewer: MujocoViewer) -> None:
-        """Called each frame. Steps the controller and updates the ghost."""
+        """Called each frame. Steps the controller."""
         if not self._is_teleop_active:
             return
 
-        from mj_manipulator.teleop import TeleopState
-
-        state = self._controller.step()
-
-        # Update ghost pose to actual EE position (shows where the arm IS)
-        if self._ghost is not None:
-            ee_pose = self._arm.get_ee_pose()
-            self._ghost.set_pose(ee_pose)
+        self._controller.step()
+        # Ghost moves with gizmo automatically (child node).
+        # Arm tracks via step_cartesian in the controller.
 
     def _activate_teleop(self) -> None:
         ee_pose = self._controller.activate()
@@ -334,7 +330,7 @@ class TeleopPanel(PanelBase):
             self._gizmo.visible = True
 
         if self._ghost is not None:
-            self._ghost.set_pose(ee_pose)
+            # Ghost is a child of gizmo — just make it visible
             self._ghost.set_visible(True)
 
         self._activate_btn.name = f"Deactivate Teleop ({self._arm_label})"
