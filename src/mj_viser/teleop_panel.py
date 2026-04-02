@@ -24,6 +24,8 @@ Usage::
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from typing import TYPE_CHECKING
 
 import mujoco
@@ -251,12 +253,8 @@ class TeleopPanel(PanelBase):
                 [2*(x*z - w*y), 2*(y*z + w*x), 1 - 2*(x*x + y*y)],
             ])
             pose[:3, 3] = event.target.position
+            # Only buffer the target — stepping happens in _teleop_loop thread
             self._controller.set_target_pose(pose)
-            # Step immediately — no continuous sync loop in IPython mode
-            state = self._controller.step()
-            # Sync viewer so the arm movement is visible
-            if self._viewer is not None:
-                self._viewer.sync()
 
         # GUI controls
         self._activate_btn = gui.add_button(
@@ -334,15 +332,20 @@ class TeleopPanel(PanelBase):
             self._gizmo.visible = True
 
         if self._ghost is not None:
-            # Ghost is a child of gizmo — just make it visible
             self._ghost.set_visible(True)
 
         self._activate_btn.name = f"Deactivate Teleop ({self._arm_label})"
         self._activate_btn.color = "red"
 
+        # Start background loop that steps the controller + syncs viewer
+        self._teleop_thread = threading.Thread(
+            target=self._teleop_loop, daemon=True,
+        )
+        self._teleop_thread.start()
+
     def _deactivate_teleop(self) -> None:
+        self._is_teleop_active = False  # signals thread to stop
         self._controller.deactivate()
-        self._is_teleop_active = False
 
         if self._gizmo is not None:
             self._gizmo.visible = False
@@ -351,3 +354,20 @@ class TeleopPanel(PanelBase):
 
         self._activate_btn.name = f"Activate Teleop ({self._arm_label})"
         self._activate_btn.color = "green"
+
+    def _teleop_loop(self) -> None:
+        """Background loop: step controller + sync viewer at ~30 Hz."""
+        dt = 1.0 / 30.0
+        while self._is_teleop_active:
+            t0 = time.monotonic()
+            try:
+                self._controller.step()
+                if self._viewer is not None:
+                    self._viewer.sync()
+            except Exception as e:
+                logger.warning("Teleop step error: %s", e)
+                break
+            elapsed = time.monotonic() - t0
+            sleep = dt - elapsed
+            if sleep > 0:
+                time.sleep(sleep)
