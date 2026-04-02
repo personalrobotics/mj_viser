@@ -314,10 +314,9 @@ class TeleopPanel(PanelBase):
                 self._record_btn.name = "Stop Recording"
 
     def on_sync(self, viewer: MujocoViewer) -> None:
-        """Called each frame. Steps the controller."""
-        if not self._is_teleop_active:
-            return
-        self._controller.step()
+        """Called each frame by viewer.sync(). No-op — teleop stepping
+        happens in _teleop_loop to avoid recursion (step → sync → on_sync)."""
+        pass
 
     def _activate_teleop(self) -> None:
         ee_pose = self._controller.activate()
