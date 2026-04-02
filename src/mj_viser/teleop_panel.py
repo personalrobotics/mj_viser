@@ -347,7 +347,7 @@ class TeleopPanel(PanelBase):
     def _teleop_loop(self) -> None:
         """Background loop: step controller + sync viewer at ~30 Hz."""
         dt = 1.0 / 30.0
-        while self._is_teleop_active:
+        while self._is_teleop_active and self._controller.is_active:
             t0 = time.monotonic()
             try:
                 self._controller.step()
