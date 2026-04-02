@@ -202,6 +202,7 @@ class TeleopPanel(PanelBase):
         data: mujoco.MjData,
         gripper_body_prefix: str,
         arm_label: str = "Arm",
+        abort_fn: object | None = None,
     ):
         self._arm = arm
         self._controller = controller
@@ -209,6 +210,7 @@ class TeleopPanel(PanelBase):
         self._data = data
         self._gripper_prefix = gripper_body_prefix
         self._arm_label = arm_label
+        self._abort_fn = abort_fn  # callable → bool, checked in teleop loop
         self._gizmo = None
         self._ghost = None
         self._is_teleop_active = False
@@ -348,6 +350,10 @@ class TeleopPanel(PanelBase):
         """Background loop: step controller + sync viewer at ~30 Hz."""
         dt = 1.0 / 30.0
         while self._is_teleop_active and self._controller.is_active:
+            # Check abort (Stop button / reset)
+            if self._abort_fn is not None and self._abort_fn():
+                self._controller.deactivate()
+                break
             t0 = time.monotonic()
             try:
                 self._controller.step()
