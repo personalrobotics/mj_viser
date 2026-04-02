@@ -294,14 +294,7 @@ class TeleopPanel(PanelBase):
 
         @self._gripper_btn.on_click
         def _on_gripper(event) -> None:
-            gripper = self._arm.gripper
-            if gripper is None:
-                return
-            pos = gripper.get_actual_position()
-            if pos > 0.5:
-                gripper.kinematic_open()
-            else:
-                gripper.kinematic_close()
+            self._controller.toggle_gripper()
 
         @self._record_btn.on_click
         def _on_record(event) -> None:
