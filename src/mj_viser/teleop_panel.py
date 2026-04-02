@@ -271,7 +271,7 @@ class TeleopPanel(PanelBase):
         from mj_manipulator.teleop import SafetyMode
         self._safety_dropdown = gui.add_dropdown(
             "Safety Mode",
-            options=["warn", "unchecked", "reject"],
+            options=["allow", "reject"],
             initial_value=self._controller.safety_mode.value,
         )
 
