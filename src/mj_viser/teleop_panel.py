@@ -354,6 +354,7 @@ class TeleopPanel(PanelBase):
 
         self._activate_btn.name = f"Activate Teleop ({self._arm_label})"
         self._activate_btn.color = "green"
+        self._status_text.value = "Idle"
 
     def _teleop_loop(self) -> None:
         """Background loop: step controller + sync viewer at ~30 Hz."""
@@ -394,3 +395,4 @@ class TeleopPanel(PanelBase):
             self._ghost.set_visible(False)
         self._activate_btn.name = f"Activate Teleop ({self._arm_label})"
         self._activate_btn.color = "green"
+        self._status_text.value = "Idle"
