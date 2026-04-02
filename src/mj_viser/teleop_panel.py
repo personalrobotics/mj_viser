@@ -239,13 +239,12 @@ class TeleopPanel(PanelBase):
 
         # Wire gizmo callbacks
         @self._gizmo.on_update
-        def _on_gizmo_update(event: viser.TransformControlsHandle) -> None:
+        def _on_gizmo_update(event) -> None:
             if not self._is_teleop_active:
                 return
             pose = np.eye(4)
-            R = np.array(event.target.wxyz)
-            # wxyz → rotation matrix
-            w, x, y, z = R
+            wxyz = np.array(event.target.wxyz)
+            w, x, y, z = wxyz
             pose[:3, :3] = np.array([
                 [1 - 2*(y*y + z*z), 2*(x*y - w*z), 2*(x*z + w*y)],
                 [2*(x*y + w*z), 1 - 2*(x*x + z*z), 2*(y*z - w*x)],
@@ -253,6 +252,7 @@ class TeleopPanel(PanelBase):
             ])
             pose[:3, 3] = event.target.position
             self._controller.set_target_pose(pose)
+            print(f"[teleop] gizmo → pos={pose[:3,3]}, state={self._controller.state.value}")
 
         # GUI controls
         self._activate_btn = gui.add_button(
@@ -316,9 +316,9 @@ class TeleopPanel(PanelBase):
         if not self._is_teleop_active:
             return
 
-        self._controller.step()
-        # Ghost moves with gizmo automatically (child node).
-        # Arm tracks via step_cartesian in the controller.
+        state = self._controller.step()
+        if state.value != "idle":
+            print(f"[teleop] on_sync step → {state.value}")
 
     def _activate_teleop(self) -> None:
         ee_pose = self._controller.activate()
