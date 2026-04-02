@@ -279,8 +279,8 @@ class TeleopPanel(PanelBase):
         def _on_safety_change(event) -> None:
             self._controller.safety_mode = SafetyMode(self._safety_dropdown.value)
 
-        # Status label
-        self._status_text = gui.add_text("Status", initial_value="Idle", disabled=True)
+        # Status label (markdown for colored text)
+        self._status_md = gui.add_markdown("**Status:** Idle")
 
         # Record button
         self._record_btn = gui.add_button("Record")
@@ -354,7 +354,7 @@ class TeleopPanel(PanelBase):
 
         self._activate_btn.name = f"Activate Teleop ({self._arm_label})"
         self._activate_btn.color = "green"
-        self._status_text.value = "Idle"
+        self._status_md.content = "**Status:** Idle"
 
     def _teleop_loop(self) -> None:
         """Background loop: step controller + sync viewer at ~30 Hz."""
@@ -368,15 +368,15 @@ class TeleopPanel(PanelBase):
             try:
                 from mj_manipulator.teleop import TeleopState
                 state = self._controller.step()
-                # Update status label
+                # Update status label with color
                 if state == TeleopState.TRACKING:
-                    self._status_text.value = "✓ Tracking"
+                    self._status_md.content = "**Status:** ✓ Tracking"
                 elif state == TeleopState.TRACKING_COLLISION:
-                    self._status_text.value = "⚠ Collision"
+                    self._status_md.content = '**Status:** <span style="color:#e74c3c">⚠ Collision</span>'
                 elif state == TeleopState.UNREACHABLE:
-                    self._status_text.value = "✗ Unreachable"
+                    self._status_md.content = '**Status:** <span style="color:#e67e22">✗ Unreachable</span>'
                 else:
-                    self._status_text.value = "Idle"
+                    self._status_md.content = "**Status:** Idle"
                 if self._viewer is not None:
                     self._viewer.sync()
             except Exception as e:
@@ -395,4 +395,4 @@ class TeleopPanel(PanelBase):
             self._ghost.set_visible(False)
         self._activate_btn.name = f"Activate Teleop ({self._arm_label})"
         self._activate_btn.color = "green"
-        self._status_text.value = "Idle"
+        self._status_md.content = "**Status:** Idle"
