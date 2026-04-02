@@ -279,6 +279,9 @@ class TeleopPanel(PanelBase):
         def _on_safety_change(event) -> None:
             self._controller.safety_mode = SafetyMode(self._safety_dropdown.value)
 
+        # Status label
+        self._status_text = gui.add_text("Status", initial_value="Idle", disabled=True)
+
         # Record button
         self._record_btn = gui.add_button("Record")
 
@@ -362,7 +365,17 @@ class TeleopPanel(PanelBase):
                 break
             t0 = time.monotonic()
             try:
-                self._controller.step()
+                from mj_manipulator.teleop import TeleopState
+                state = self._controller.step()
+                # Update status label
+                if state == TeleopState.TRACKING:
+                    self._status_text.value = "✓ Tracking"
+                elif state == TeleopState.TRACKING_COLLISION:
+                    self._status_text.value = "⚠ Collision"
+                elif state == TeleopState.UNREACHABLE:
+                    self._status_text.value = "✗ Unreachable"
+                else:
+                    self._status_text.value = "Idle"
                 if self._viewer is not None:
                     self._viewer.sync()
             except Exception as e:
