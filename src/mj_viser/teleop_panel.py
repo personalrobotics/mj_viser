@@ -360,3 +360,12 @@ class TeleopPanel(PanelBase):
             sleep = dt - elapsed
             if sleep > 0:
                 time.sleep(sleep)
+
+        # Loop exited (abort, error, or deactivate) — reset panel UI
+        self._is_teleop_active = False
+        if self._gizmo is not None:
+            self._gizmo.visible = False
+        if self._ghost is not None:
+            self._ghost.set_visible(False)
+        self._activate_btn.name = f"Activate Teleop ({self._arm_label})"
+        self._activate_btn.color = "green"
