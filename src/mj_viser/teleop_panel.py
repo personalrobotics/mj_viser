@@ -76,7 +76,7 @@ class GhostHand:
         mesh = self._extract_gripper_mesh(model, data, gripper_body_prefix, ee_site_id)
         if mesh is not None and len(mesh.vertices) > 0:
             self._handle = server.scene.add_mesh_trimesh(
-                name, mesh=mesh, opacity=opacity, visible=False,
+                name, mesh=mesh, visible=False,
             )
 
     def set_pose(self, pose_4x4: np.ndarray) -> None:
