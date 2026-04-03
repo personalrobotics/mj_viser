@@ -17,6 +17,7 @@ Web-based MuJoCo viewer built on [Viser](https://github.com/nerfstudio-project/v
 - **Click-to-select** — click any geom to show its body name; label follows the object
 - **Visibility groups** — toggle MuJoCo geom groups on/off
 - **Granular GUI control** — show/hide simulation controls and visibility panel independently
+- **Teleop panel** — SE(3) gizmo + ghost hand for interactive arm control with collision feedback
 - **Multi-client** — multiple browser tabs viewing the same simulation
 - **Beautiful rendering** — three-point lighting, proper materials, transparency support
 
@@ -112,6 +113,24 @@ class MyPanel(PanelBase):
 viewer = MujocoViewer(model, data)
 viewer.add_panel(MyPanel())
 viewer.launch()
+```
+
+### Teleop panel
+
+```python
+from mj_viser import MujocoViewer, TeleopPanel
+from mj_manipulator.teleop import TeleopController
+
+controller = TeleopController(arm, ctx)
+panel = TeleopPanel(
+    arm=arm, controller=controller,
+    model=model, data=data,
+    gripper_body_prefix="ur5e/gripper/",
+    arm_label="Right Arm",
+)
+viewer.add_panel(panel)
+viewer.launch()
+# Teleop tab: activate gizmo, drag to control arm, toggle gripper, record demos
 ```
 
 ### Granular GUI control
