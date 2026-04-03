@@ -88,14 +88,6 @@ class GhostHand:
         self._handle.position = pose_4x4[:3, 3]
         self._handle.wxyz = xmat_to_wxyz(pose_4x4[:3, :3].flatten())
 
-    def set_color(self, rgb: tuple[int, int, int]) -> None:
-        """Change ghost color (for reachability feedback)."""
-        # Viser doesn't support runtime color change on trimesh easily.
-        # We'd need to remove and re-add. For now, skip — the gizmo itself
-        # provides visual feedback. This is a placeholder for future
-        # Viser API improvements.
-        pass
-
     def set_visible(self, visible: bool) -> None:
         """Show or hide the ghost."""
         if self._handle is not None:
@@ -314,10 +306,8 @@ class TeleopPanel(PanelBase):
                 self._controller.start_recording()
                 self._record_btn.name = "Stop Recording"
 
-    def on_sync(self, viewer: MujocoViewer) -> None:
-        """Called each frame by viewer.sync(). No-op — teleop stepping
-        happens in _teleop_loop to avoid recursion (step → sync → on_sync)."""
-        pass
+    # on_sync intentionally not overridden — teleop stepping happens in
+    # _teleop_loop thread to avoid recursion (step → sync → on_sync).
 
     def _activate_teleop(self) -> None:
         # Clear any stale abort from Stop button
