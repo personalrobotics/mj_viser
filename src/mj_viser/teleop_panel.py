@@ -194,6 +194,10 @@ class TeleopPanel(PanelBase):
         arm_label: Display label (e.g., "Right Arm").
     """
 
+    # Shared lock across all TeleopPanel instances — prevents concurrent
+    # MuJoCo access when multiple arms are teleoped simultaneously.
+    _sim_lock = threading.Lock()
+
     def __init__(
         self,
         arm: Arm,
@@ -369,8 +373,11 @@ class TeleopPanel(PanelBase):
             t0 = time.monotonic()
             try:
                 from mj_manipulator.teleop import TeleopState
-                state = self._controller.step()
-                # Update status label with color
+                with TeleopPanel._sim_lock:
+                    state = self._controller.step()
+                    if self._viewer is not None:
+                        self._viewer.sync()
+                # Update status (outside lock — GUI updates are thread-safe)
                 if state == TeleopState.TRACKING:
                     self._status_md.content = "🟢 **Tracking**"
                 elif state == TeleopState.TRACKING_COLLISION:
@@ -379,8 +386,6 @@ class TeleopPanel(PanelBase):
                     self._status_md.content = "🟠 **Unreachable**"
                 else:
                     self._status_md.content = "⚪ **Idle**"
-                if self._viewer is not None:
-                    self._viewer.sync()
             except Exception as e:
                 logger.warning("Teleop step error: %s", e)
                 break
