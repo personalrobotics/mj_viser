@@ -319,29 +319,21 @@ class TeleopPanel(PanelBase):
             new_mode = self._mode_dropdown.value.lower()
             if new_mode == self._gizmo_mode:
                 return
-            # Sync from the currently visible gizmo
-            if self._gizmo_mode == "move":
-                self._gizmo_rotate.wxyz = self._gizmo_move.wxyz
-                self._gizmo_rotate.position = self._gizmo_move.position
-            else:
-                self._gizmo_move.wxyz = self._gizmo_rotate.wxyz
-                self._gizmo_move.position = self._gizmo_rotate.position
+            # Snap both gizmos to the arm's current EE pose to avoid jumps.
+            # The gizmo that was hidden may have stale position/orientation.
+            ee_pose = self._arm.get_ee_pose()
+            wxyz = xmat_to_wxyz(ee_pose[:3, :3].flatten())
+            pos = tuple(ee_pose[:3, 3])
+            self._gizmo_move.wxyz = wxyz
+            self._gizmo_move.position = pos
+            self._gizmo_rotate.wxyz = wxyz
+            self._gizmo_rotate.position = pos
             self._gizmo_mode = new_mode
             if self._is_teleop_active:
                 self._gizmo_move.visible = (new_mode == "move")
                 self._gizmo_rotate.visible = (new_mode == "rotate")
-                # Keep ghost at the same pose
-                active = self._gizmo_move if new_mode == "move" else self._gizmo_rotate
-                if self._ghost is not None:
-                    pose = np.eye(4)
-                    w, x, y, z = active.wxyz
-                    pose[:3, :3] = np.array([
-                        [1 - 2*(y*y + z*z), 2*(x*y - w*z), 2*(x*z + w*y)],
-                        [2*(x*y + w*z), 1 - 2*(x*x + z*z), 2*(y*z - w*x)],
-                        [2*(x*z - w*y), 2*(y*z + w*x), 1 - 2*(x*x + y*y)],
-                    ])
-                    pose[:3, 3] = active.position
-                    self._ghost.set_pose(pose)
+            if self._ghost is not None:
+                self._ghost.set_pose(ee_pose)
 
         @self._snap_btn.on_click
         def _on_snap(event) -> None:
