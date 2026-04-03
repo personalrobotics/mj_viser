@@ -223,26 +223,43 @@ class TeleopPanel(PanelBase):
 
         # Gizmo (hidden initially) — unique name per arm
         arm_name = self._arm.config.name
-        gizmo_name = f"/teleop/{arm_name}/gizmo"
+        gizmo_base = f"/teleop/{arm_name}"
         ee_pose = self._arm.get_ee_pose()
-        self._gizmo = scene.add_transform_controls(
-            gizmo_name,
+        init_wxyz = xmat_to_wxyz(ee_pose[:3, :3].flatten())
+        init_pos = tuple(ee_pose[:3, 3])
+
+        # Two gizmos: translate-only and rotate-only. Toggle between them.
+        self._gizmo_move = scene.add_transform_controls(
+            f"{gizmo_base}/gizmo_move",
             scale=0.3,
             depth_test=False,
-            wxyz=xmat_to_wxyz(ee_pose[:3, :3].flatten()),
-            position=tuple(ee_pose[:3, 3]),
+            disable_rotations=True,
+            wxyz=init_wxyz,
+            position=init_pos,
             visible=False,
         )
+        self._gizmo_rotate = scene.add_transform_controls(
+            f"{gizmo_base}/gizmo_rotate",
+            scale=0.3,
+            depth_test=False,
+            disable_axes=True,
+            disable_sliders=True,
+            wxyz=init_wxyz,
+            position=init_pos,
+            visible=False,
+        )
+        self._gizmo_mode = "move"  # "move" or "rotate"
+        # Active gizmo reference for convenience
+        self._gizmo = self._gizmo_move
 
-        # Ghost hand as child of gizmo — moves automatically when gizmo moves
+        # Ghost hand as child of the move gizmo
         self._ghost = GhostHand(
             server, self._model, self._data,
             self._gripper_prefix, self._arm.ee_site_id,
-            name=f"{gizmo_name}/ghost",
+            name=f"{gizmo_base}/gizmo_move/ghost",
         )
 
-        # Wire gizmo callbacks
-        @self._gizmo.on_update
+        # Shared callback for both gizmos
         def _on_gizmo_update(event) -> None:
             if not self._is_teleop_active:
                 return
@@ -255,13 +272,20 @@ class TeleopPanel(PanelBase):
                 [2*(x*z - w*y), 2*(y*z + w*x), 1 - 2*(x*x + y*y)],
             ])
             pose[:3, 3] = event.target.position
-            # Only buffer the target — stepping happens in _teleop_loop thread
             self._controller.set_target_pose(pose)
+            # Sync the other gizmo's position so toggling is seamless
+            other = self._gizmo_rotate if event.target is self._gizmo_move else self._gizmo_move
+            other.wxyz = event.target.wxyz
+            other.position = event.target.position
+
+        self._gizmo_move.on_update(_on_gizmo_update)
+        self._gizmo_rotate.on_update(_on_gizmo_update)
 
         # GUI controls — wrapped in a folder per arm
         with gui.add_folder(self._arm_label):
             self._activate_btn = gui.add_button("Activate", color="green")
             self._status_md = gui.add_markdown("⚪ **Idle**")
+            self._mode_btn = gui.add_button("Mode: Move")
             self._snap_btn = gui.add_button("Snap to EE")
             self._gripper_btn = gui.add_button("Toggle Gripper")
 
@@ -285,12 +309,30 @@ class TeleopPanel(PanelBase):
             else:
                 self._activate_teleop()
 
+        @self._mode_btn.on_click
+        def _on_mode_toggle(event) -> None:
+            if self._gizmo_mode == "move":
+                self._gizmo_mode = "rotate"
+                self._mode_btn.name = "Mode: Rotate"
+                if self._is_teleop_active:
+                    self._gizmo_move.visible = False
+                    self._gizmo_rotate.visible = True
+            else:
+                self._gizmo_mode = "move"
+                self._mode_btn.name = "Mode: Move"
+                if self._is_teleop_active:
+                    self._gizmo_rotate.visible = False
+                    self._gizmo_move.visible = True
+
         @self._snap_btn.on_click
         def _on_snap(event) -> None:
-            if self._gizmo is not None:
-                ee_pose = self._arm.get_ee_pose()
-                self._gizmo.wxyz = xmat_to_wxyz(ee_pose[:3, :3].flatten())
-                self._gizmo.position = tuple(ee_pose[:3, 3])
+            ee_pose = self._arm.get_ee_pose()
+            wxyz = xmat_to_wxyz(ee_pose[:3, :3].flatten())
+            pos = tuple(ee_pose[:3, 3])
+            self._gizmo_move.wxyz = wxyz
+            self._gizmo_move.position = pos
+            self._gizmo_rotate.wxyz = wxyz
+            self._gizmo_rotate.position = pos
 
         @self._gripper_btn.on_click
         def _on_gripper(event) -> None:
@@ -317,10 +359,18 @@ class TeleopPanel(PanelBase):
         ee_pose = self._controller.activate()
         self._is_teleop_active = True
 
-        if self._gizmo is not None:
-            self._gizmo.wxyz = xmat_to_wxyz(ee_pose[:3, :3].flatten())
-            self._gizmo.position = tuple(ee_pose[:3, 3])
-            self._gizmo.visible = True
+        wxyz = xmat_to_wxyz(ee_pose[:3, :3].flatten())
+        pos = tuple(ee_pose[:3, 3])
+        self._gizmo_move.wxyz = wxyz
+        self._gizmo_move.position = pos
+        self._gizmo_rotate.wxyz = wxyz
+        self._gizmo_rotate.position = pos
+
+        # Show the active mode's gizmo
+        if self._gizmo_mode == "move":
+            self._gizmo_move.visible = True
+        else:
+            self._gizmo_rotate.visible = True
 
         if self._ghost is not None:
             self._ghost.set_visible(True)
@@ -338,8 +388,8 @@ class TeleopPanel(PanelBase):
         self._is_teleop_active = False  # signals thread to stop
         self._controller.deactivate()
 
-        if self._gizmo is not None:
-            self._gizmo.visible = False
+        self._gizmo_move.visible = False
+        self._gizmo_rotate.visible = False
         if self._ghost is not None:
             self._ghost.set_visible(False)
 
@@ -381,8 +431,8 @@ class TeleopPanel(PanelBase):
 
         # Loop exited (abort, error, or deactivate) — reset panel UI
         self._is_teleop_active = False
-        if self._gizmo is not None:
-            self._gizmo.visible = False
+        self._gizmo_move.visible = False
+        self._gizmo_rotate.visible = False
         if self._ghost is not None:
             self._ghost.set_visible(False)
         self._activate_btn.name = "Activate"
