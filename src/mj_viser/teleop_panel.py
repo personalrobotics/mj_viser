@@ -266,30 +266,25 @@ class TeleopPanel(PanelBase):
             # Only buffer the target — stepping happens in _teleop_loop thread
             self._controller.set_target_pose(pose)
 
-        # GUI controls
-        self._activate_btn = gui.add_button(
-            f"Activate Teleop ({self._arm_label})", color="green",
-        )
-        self._snap_btn = gui.add_button("Snap to EE")
-        self._gripper_btn = gui.add_button("Toggle Gripper")
+        # GUI controls — wrapped in a folder per arm
+        with gui.add_folder(self._arm_label):
+            self._activate_btn = gui.add_button("Activate", color="green")
+            self._status_md = gui.add_markdown("⚪ **Idle**")
+            self._snap_btn = gui.add_button("Snap to EE")
+            self._gripper_btn = gui.add_button("Toggle Gripper")
 
-        # Safety mode dropdown
-        from mj_manipulator.teleop import SafetyMode
-        self._safety_dropdown = gui.add_dropdown(
-            "Safety Mode",
-            options=["allow", "reject"],
-            initial_value=self._controller.safety_mode.value,
-        )
+            from mj_manipulator.teleop import SafetyMode
+            self._safety_dropdown = gui.add_dropdown(
+                "Safety",
+                options=["allow", "reject"],
+                initial_value=self._controller.safety_mode.value,
+            )
 
-        @self._safety_dropdown.on_update
-        def _on_safety_change(event) -> None:
-            self._controller.safety_mode = SafetyMode(self._safety_dropdown.value)
+            @self._safety_dropdown.on_update
+            def _on_safety_change(event) -> None:
+                self._controller.safety_mode = SafetyMode(self._safety_dropdown.value)
 
-        # Status label (markdown for colored text)
-        self._status_md = gui.add_markdown("⚪ **Idle**")
-
-        # Record button
-        self._record_btn = gui.add_button("Record")
+            self._record_btn = gui.add_button("Record")
 
         @self._activate_btn.on_click
         def _on_activate(event) -> None:
@@ -340,7 +335,7 @@ class TeleopPanel(PanelBase):
         if self._ghost is not None:
             self._ghost.set_visible(True)
 
-        self._activate_btn.name = f"Deactivate Teleop ({self._arm_label})"
+        self._activate_btn.name = "Deactivate"
         self._activate_btn.color = "red"
 
         # Start background loop that steps the controller + syncs viewer
@@ -358,7 +353,7 @@ class TeleopPanel(PanelBase):
         if self._ghost is not None:
             self._ghost.set_visible(False)
 
-        self._activate_btn.name = f"Activate Teleop ({self._arm_label})"
+        self._activate_btn.name = "Activate"
         self._activate_btn.color = "green"
         self._status_md.content = "⚪ **Idle**"
 
@@ -400,6 +395,6 @@ class TeleopPanel(PanelBase):
             self._gizmo.visible = False
         if self._ghost is not None:
             self._ghost.set_visible(False)
-        self._activate_btn.name = f"Activate Teleop ({self._arm_label})"
+        self._activate_btn.name = "Activate"
         self._activate_btn.color = "green"
         self._status_md.content = "⚪ **Idle**"
