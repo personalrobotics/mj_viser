@@ -225,10 +225,12 @@ class TeleopPanel(PanelBase):
         server = viewer._server
         scene = server.scene
 
-        # Gizmo (hidden initially)
+        # Gizmo (hidden initially) — unique name per arm
+        arm_name = self._arm.config.name
+        gizmo_name = f"/teleop/{arm_name}/gizmo"
         ee_pose = self._arm.get_ee_pose()
         self._gizmo = scene.add_transform_controls(
-            "/teleop/gizmo",
+            gizmo_name,
             scale=0.3,
             depth_test=False,
             wxyz=xmat_to_wxyz(ee_pose[:3, :3].flatten()),
@@ -240,7 +242,7 @@ class TeleopPanel(PanelBase):
         self._ghost = GhostHand(
             server, self._model, self._data,
             self._gripper_prefix, self._arm.ee_site_id,
-            name="/teleop/gizmo/ghost",
+            name=f"{gizmo_name}/ghost",
         )
 
         # Wire gizmo callbacks
