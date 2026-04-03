@@ -61,7 +61,10 @@ class MujocoViewer:
 
         self._server = viser.ViserServer(host=host, port=port)
         if label is not None:
-            self._server.run_javascript(f"document.title = {label!r};")
+            from viser._messages import RunJavascriptMessage
+            self._server._websock_interface.queue_message(
+                RunJavascriptMessage(source=f"document.title = {label!r};")
+            )
         self._scene_mgr = SceneManager(self._server, model, data)
         self._gui_mgr: GuiManager | None = None
         self._huds: dict[str, viser.GuiHtmlHandle] = {}
