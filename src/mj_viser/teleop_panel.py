@@ -286,7 +286,11 @@ class TeleopPanel(PanelBase):
         with gui.add_folder(self._arm_label):
             self._activate_btn = gui.add_button("Activate", color="green")
             self._status_md = gui.add_markdown("⚪ **Idle**")
-            self._mode_btn = gui.add_button("Mode: Move")
+            self._mode_dropdown = gui.add_dropdown(
+                "Gizmo Mode",
+                options=["Move", "Rotate"],
+                initial_value="Move",
+            )
             self._snap_btn = gui.add_button("Snap to EE")
             self._gripper_btn = gui.add_button("Toggle Gripper")
 
@@ -310,26 +314,34 @@ class TeleopPanel(PanelBase):
             else:
                 self._activate_teleop()
 
-        @self._mode_btn.on_click
-        def _on_mode_toggle(event) -> None:
+        @self._mode_dropdown.on_update
+        def _on_mode_change(event) -> None:
+            new_mode = self._mode_dropdown.value.lower()
+            if new_mode == self._gizmo_mode:
+                return
+            # Sync from the currently visible gizmo
             if self._gizmo_mode == "move":
-                # Sync rotate gizmo to current move gizmo pose before switching
                 self._gizmo_rotate.wxyz = self._gizmo_move.wxyz
                 self._gizmo_rotate.position = self._gizmo_move.position
-                self._gizmo_mode = "rotate"
-                self._mode_btn.name = "Mode: Rotate"
-                if self._is_teleop_active:
-                    self._gizmo_move.visible = False
-                    self._gizmo_rotate.visible = True
             else:
-                # Sync move gizmo to current rotate gizmo pose before switching
                 self._gizmo_move.wxyz = self._gizmo_rotate.wxyz
                 self._gizmo_move.position = self._gizmo_rotate.position
-                self._gizmo_mode = "move"
-                self._mode_btn.name = "Mode: Move"
-                if self._is_teleop_active:
-                    self._gizmo_rotate.visible = False
-                    self._gizmo_move.visible = True
+            self._gizmo_mode = new_mode
+            if self._is_teleop_active:
+                self._gizmo_move.visible = (new_mode == "move")
+                self._gizmo_rotate.visible = (new_mode == "rotate")
+                # Keep ghost at the same pose
+                active = self._gizmo_move if new_mode == "move" else self._gizmo_rotate
+                if self._ghost is not None:
+                    pose = np.eye(4)
+                    w, x, y, z = active.wxyz
+                    pose[:3, :3] = np.array([
+                        [1 - 2*(y*y + z*z), 2*(x*y - w*z), 2*(x*z + w*y)],
+                        [2*(x*y + w*z), 1 - 2*(x*x + z*z), 2*(y*z - w*x)],
+                        [2*(x*z - w*y), 2*(y*z + w*x), 1 - 2*(x*x + y*y)],
+                    ])
+                    pose[:3, 3] = active.position
+                    self._ghost.set_pose(pose)
 
         @self._snap_btn.on_click
         def _on_snap(event) -> None:
