@@ -41,6 +41,7 @@ class MujocoViewer:
         *,
         host: str = "0.0.0.0",
         port: int = 8080,
+        label: str | None = None,
         show_gui: bool = True,
         show_sim_controls: bool | None = None,
         show_visibility: bool | None = None,
@@ -49,6 +50,7 @@ class MujocoViewer:
         self._data = data
         self._host = host
         self._port = port
+        self._label = label
         self._show_gui = show_gui
         # None = inherit from show_gui
         self._show_sim_controls = show_sim_controls if show_sim_controls is not None else show_gui
@@ -58,6 +60,8 @@ class MujocoViewer:
         self._panels: list[PanelBase] = []
 
         self._server = viser.ViserServer(host=host, port=port)
+        if label is not None:
+            self._server.run_javascript(f"document.title = {label!r};")
         self._scene_mgr = SceneManager(self._server, model, data)
         self._gui_mgr: GuiManager | None = None
         self._huds: dict[str, viser.GuiHtmlHandle] = {}
