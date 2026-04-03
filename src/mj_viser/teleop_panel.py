@@ -249,14 +249,12 @@ class TeleopPanel(PanelBase):
             visible=False,
         )
         self._gizmo_mode = "move"  # "move" or "rotate"
-        # Active gizmo reference for convenience
-        self._gizmo = self._gizmo_move
 
-        # Ghost hand as child of the move gizmo
+        # Ghost hand — independent scene node, updated from teleop loop
         self._ghost = GhostHand(
             server, self._model, self._data,
             self._gripper_prefix, self._arm.ee_site_id,
-            name=f"{gizmo_base}/gizmo_move/ghost",
+            name=f"{gizmo_base}/ghost",
         )
 
         # Shared callback for both gizmos
@@ -273,10 +271,13 @@ class TeleopPanel(PanelBase):
             ])
             pose[:3, 3] = event.target.position
             self._controller.set_target_pose(pose)
-            # Sync the other gizmo's position so toggling is seamless
+            # Sync the other gizmo so toggling is seamless
             other = self._gizmo_rotate if event.target is self._gizmo_move else self._gizmo_move
             other.wxyz = event.target.wxyz
             other.position = event.target.position
+            # Move ghost to match
+            if self._ghost is not None:
+                self._ghost.set_pose(pose)
 
         self._gizmo_move.on_update(_on_gizmo_update)
         self._gizmo_rotate.on_update(_on_gizmo_update)
@@ -312,12 +313,18 @@ class TeleopPanel(PanelBase):
         @self._mode_btn.on_click
         def _on_mode_toggle(event) -> None:
             if self._gizmo_mode == "move":
+                # Sync rotate gizmo to current move gizmo pose before switching
+                self._gizmo_rotate.wxyz = self._gizmo_move.wxyz
+                self._gizmo_rotate.position = self._gizmo_move.position
                 self._gizmo_mode = "rotate"
                 self._mode_btn.name = "Mode: Rotate"
                 if self._is_teleop_active:
                     self._gizmo_move.visible = False
                     self._gizmo_rotate.visible = True
             else:
+                # Sync move gizmo to current rotate gizmo pose before switching
+                self._gizmo_move.wxyz = self._gizmo_rotate.wxyz
+                self._gizmo_move.position = self._gizmo_rotate.position
                 self._gizmo_mode = "move"
                 self._mode_btn.name = "Mode: Move"
                 if self._is_teleop_active:
