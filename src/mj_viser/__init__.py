@@ -2,6 +2,14 @@
 
 from mj_viser.panels import PanelBase
 from mj_viser.sensor_panel import SensorChannel, SensorPanel
+from mj_viser.teleop_panel import GhostHand, TeleopPanel
 from mj_viser.viewer import MujocoViewer
 
-__all__ = ["MujocoViewer", "PanelBase", "SensorChannel", "SensorPanel"]
+__all__ = [
+    "GhostHand",
+    "MujocoViewer",
+    "PanelBase",
+    "SensorChannel",
+    "SensorPanel",
+    "TeleopPanel",
+]
