@@ -5,28 +5,54 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        run: uv python install ${{ matrix.python-version }}
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --all-extras
+        run: uv sync --all-extras --dev
 
-      - name: Lint
-        run: uv run ruff check src/ tests/
+      - name: Ruff lint
+        run: uv run ruff check .
 
-      - name: Test
-        run: uv run pytest tests/ -v --cov=mj_viser --cov-report=term-missing
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Pytest
+        run: |
+          if [ -d tests ]; then
+            uv run pytest tests/ -v
+          else
+            echo "No tests/ directory; skipping pytest."
+          fi
+
+  notify-robot-code:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch integration run
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.ROBOT_CODE_DISPATCH_TOKEN }}
+          repository: personalrobotics/robot-code
+          event-type: sibling-updated
+          client-payload: '{"repo":"${{ github.event.repository.name }}","sha":"${{ github.sha }}"}'

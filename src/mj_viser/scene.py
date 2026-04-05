@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Scene manager: builds and updates Viser scene nodes from MuJoCo model/data."""
 
 from __future__ import annotations
@@ -59,6 +62,7 @@ class SceneManager:
 
             # Click handler for selection
             gid = geom_id  # capture for closure
+
             @handle.on_click
             def _(event: viser.ScenePointerEvent, _gid=gid) -> None:
                 self._handle_click(_gid)
@@ -88,9 +92,7 @@ class SceneManager:
                     self._clear_label()
                     self._selected_geom = None
                 else:
-                    self._label_handle.position = tuple(
-                        p + o for p, o in zip(mj_pos_to_viser(pos), (0, 0, 0.05))
-                    )
+                    self._label_handle.position = tuple(p + o for p, o in zip(mj_pos_to_viser(pos), (0, 0, 0.05)))
 
     def update_visibility(self, visible_groups: set[int]) -> None:
         """Toggle geom visibility based on MuJoCo geom groups."""
@@ -119,12 +121,14 @@ class SceneManager:
 
         # Resolve body name
         body_id = self._model.geom_bodyid[geom_id]
-        body_name = mujoco.mj_id2name(
-            self._model, mujoco.mjtObj.mjOBJ_BODY, body_id,
-        ) or f"body_{body_id}"
-        geom_name = mujoco.mj_id2name(
-            self._model, mujoco.mjtObj.mjOBJ_GEOM, geom_id,
-        ) or f"geom_{geom_id}"
+        body_name = (
+            mujoco.mj_id2name(
+                self._model,
+                mujoco.mjtObj.mjOBJ_BODY,
+                body_id,
+            )
+            or f"body_{body_id}"
+        )
 
         # Show label at geom position
         pos = self._data.geom_xpos[geom_id]

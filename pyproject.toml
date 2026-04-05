@@ -3,6 +3,12 @@ name = "mj-viser"
 version = "0.1.0"
 description = "Web-based MuJoCo viewer using Viser"
 license = "MIT"
+authors = [
+    {name = "Siddhartha Srinivasa", email = "siddhartha.srinivasa@gmail.com"},
+]
+maintainers = [
+    {name = "Siddhartha Srinivasa", email = "siddhartha.srinivasa@gmail.com"},
+]
 requires-python = ">=3.10"
 readme = "README.md"
 dependencies = [
@@ -24,11 +30,22 @@ dev = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[project.urls]
+Homepage = "https://github.com/personalrobotics/mj_viser"
+Repository = "https://github.com/personalrobotics/mj_viser"
+Issues = "https://github.com/personalrobotics/mj_viser/issues"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/mj_viser"]
 
 [tool.ruff]
-line-length = 100
+line-length = 120
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/mj_viser/__init__.py" = ["F401"]
 
 [tool.mypy]
 strict = true

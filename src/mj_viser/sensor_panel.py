@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Generic sensor plot panel for real-time MuJoCo sensor data."""
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ class SensorChannel:
         label: Display name (e.g., "Force X").
         color: CSS color string (e.g., "red", "#ff0000").
     """
+
     index: int
     label: str
     color: str = "#4a9eff"
@@ -67,9 +71,7 @@ class SensorPanel(PanelBase):
 
         # Ring buffers
         self._times: deque[float] = deque(maxlen=max_points)
-        self._data: dict[int, deque[float]] = {
-            ch.index: deque(maxlen=max_points) for ch in self._channels
-        }
+        self._data: dict[int, deque[float]] = {ch.index: deque(maxlen=max_points) for ch in self._channels}
 
         self._plot: viser.GuiUplotHandle | None = None
         self._start_time: float | None = None
@@ -79,6 +81,7 @@ class SensorPanel(PanelBase):
 
     def setup(self, gui: viser.GuiApi, viewer: MujocoViewer) -> None:
         import contextlib
+
         ctx = gui.add_folder(self._title, order=5) if self._use_folder else contextlib.nullcontext()
         with ctx:
             if not self._use_folder:
@@ -86,11 +89,14 @@ class SensorPanel(PanelBase):
             # Time axis series + one per channel
             series = (
                 uplot.Series(label="Time"),
-                *(uplot.Series(
-                    label=ch.label,
-                    stroke=ch.color,
-                    width=2,
-                ) for ch in self._channels),
+                *(
+                    uplot.Series(
+                        label=ch.label,
+                        stroke=ch.color,
+                        width=2,
+                    )
+                    for ch in self._channels
+                ),
             )
 
             empty = np.zeros(0, dtype=np.float64)
@@ -111,10 +117,10 @@ class SensorPanel(PanelBase):
             legend_items = " ".join(
                 f'<span style="margin-right:6px;">'
                 f'<span style="display:inline-block;width:8px;height:8px;'
-                f'background:{ch.color};border-radius:1px;margin-right:2px;'
+                f"background:{ch.color};border-radius:1px;margin-right:2px;"
                 f'vertical-align:middle;"></span>'
                 f'<span style="font-size:10px;color:#666;">{ch.label}</span>'
-                f'</span>'
+                f"</span>"
                 for ch in self._channels
             )
             gui.add_html(f'<div style="padding:0 2px;">{legend_items}</div>')
@@ -139,10 +145,7 @@ class SensorPanel(PanelBase):
         mask = times_arr >= cutoff
         t_win = times_arr[mask]
 
-        channel_arrs = tuple(
-            np.array(self._data[ch.index], dtype=np.float64)[mask]
-            for ch in self._channels
-        )
+        channel_arrs = tuple(np.array(self._data[ch.index], dtype=np.float64)[mask] for ch in self._channels)
 
         # uplot data update — just swap arrays, no DOM rebuild
         self._plot.data = (t_win, *channel_arrs)

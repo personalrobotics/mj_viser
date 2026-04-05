@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Tests for coordinate and rotation conversion utilities."""
 
 from __future__ import annotations
@@ -70,9 +73,7 @@ class TestXmatToWxyz:
                 q = -q  # Normalize to positive w
             mat = _wxyz_to_mat(*q)
             result = xmat_to_wxyz(mat.flatten())
-            assert _quat_equiv(tuple(q), result, atol=1e-6), (
-                f"Round-trip failed: input={q}, output={result}"
-            )
+            assert _quat_equiv(tuple(q), result, atol=1e-6), f"Round-trip failed: input={q}, output={result}"
 
     def test_unit_quaternion_output(self) -> None:
         """Output quaternion should have unit norm."""

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """mj-viser: Web-based MuJoCo viewer using Viser."""
 
 from mj_viser.panels import PanelBase

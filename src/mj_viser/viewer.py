@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """MujocoViewer: the main public class tying together scene, GUI, and simulation."""
 
 from __future__ import annotations
@@ -62,9 +65,8 @@ class MujocoViewer:
         self._server = viser.ViserServer(host=host, port=port)
         if label is not None:
             from viser._messages import RunJavascriptMessage
-            self._server._websock_interface.queue_message(
-                RunJavascriptMessage(source=f"document.title = {label!r};")
-            )
+
+            self._server._websock_interface.queue_message(RunJavascriptMessage(source=f"document.title = {label!r};"))
         self._scene_mgr = SceneManager(self._server, model, data)
         self._gui_mgr: GuiManager | None = None
         self._huds: dict[str, viser.GuiHtmlHandle] = {}
@@ -112,10 +114,10 @@ class MujocoViewer:
 
         html = (
             f'<div style="position:fixed;{css_pos}z-index:1000;'
-            f'background:rgba(0,0,0,0.7);color:white;padding:4px 10px;'
-            f'border-radius:4px;font-family:monospace;font-size:12px;'
+            f"background:rgba(0,0,0,0.7);color:white;padding:4px 10px;"
+            f"border-radius:4px;font-family:monospace;font-size:12px;"
             f'pointer-events:none;white-space:nowrap;">'
-            f'{content}</div>'
+            f"{content}</div>"
         )
 
         if name in self._huds:
@@ -216,7 +218,8 @@ class MujocoViewer:
 
         if self._show_gui or self._show_visibility:
             self._gui_mgr = GuiManager(
-                self._server, self._model,
+                self._server,
+                self._model,
                 show_sim_controls=self._show_sim_controls,
                 show_visibility=self._show_visibility,
             )
