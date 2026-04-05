@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Teleop panel: SE(3) gizmo + ghost hand for interactive arm control.
 
 Provides a Viser TransformControls gizmo that drives a TeleopController.
@@ -39,16 +42,16 @@ from mj_viser.transforms import xmat_to_wxyz
 
 if TYPE_CHECKING:
     from mj_manipulator.arm import Arm
-    from mj_manipulator.teleop import SafetyMode, TeleopController
+    from mj_manipulator.teleop import TeleopController
 
     from mj_viser.viewer import MujocoViewer
 
 logger = logging.getLogger(__name__)
 
 # Ghost hand colors (RGB 0-255)
-_COLOR_TRACKING = (100, 200, 100)       # green
-_COLOR_COLLISION = (230, 160, 50)       # orange
-_COLOR_UNREACHABLE = (200, 80, 80)      # red
+_COLOR_TRACKING = (100, 200, 100)  # green
+_COLOR_COLLISION = (230, 160, 50)  # orange
+_COLOR_UNREACHABLE = (200, 80, 80)  # red
 _GHOST_OPACITY = 0.35
 
 
@@ -78,7 +81,9 @@ class GhostHand:
         mesh = self._extract_gripper_mesh(model, data, gripper_body_prefix, ee_site_id)
         if mesh is not None and len(mesh.vertices) > 0:
             self._handle = server.scene.add_mesh_trimesh(
-                name, mesh=mesh, visible=False,
+                name,
+                mesh=mesh,
+                visible=False,
             )
 
     def set_pose(self, pose_4x4: np.ndarray) -> None:
@@ -153,10 +158,12 @@ class GhostHand:
             verts_h = np.c_[verts, np.ones(len(verts))]
             verts_site = (T_site_geom @ verts_h.T).T[:, :3]
 
-            meshes.append(trimesh.Trimesh(
-                vertices=verts_site.astype(np.float32),
-                faces=faces,
-            ))
+            meshes.append(
+                trimesh.Trimesh(
+                    vertices=verts_site.astype(np.float32),
+                    faces=faces,
+                )
+            )
 
         if not meshes:
             logger.warning("No gripper meshes found under prefix '%s'", body_prefix)
@@ -236,8 +243,11 @@ class TeleopPanel(PanelBase):
 
         # Ghost hand as child of gizmo — moves automatically
         self._ghost = GhostHand(
-            server, self._model, self._data,
-            self._gripper_prefix, self._arm.ee_site_id,
+            server,
+            self._model,
+            self._data,
+            self._gripper_prefix,
+            self._arm.ee_site_id,
             name=f"{gizmo_name}/ghost",
         )
 
@@ -248,11 +258,13 @@ class TeleopPanel(PanelBase):
             pose = np.eye(4)
             wxyz = np.array(event.target.wxyz)
             w, x, y, z = wxyz
-            pose[:3, :3] = np.array([
-                [1 - 2*(y*y + z*z), 2*(x*y - w*z), 2*(x*z + w*y)],
-                [2*(x*y + w*z), 1 - 2*(x*x + z*z), 2*(y*z - w*x)],
-                [2*(x*z - w*y), 2*(y*z + w*x), 1 - 2*(x*x + y*y)],
-            ])
+            pose[:3, :3] = np.array(
+                [
+                    [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
+                    [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
+                    [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
+                ]
+            )
             pose[:3, 3] = event.target.position
             self._controller.set_target_pose(pose)
 
@@ -264,6 +276,7 @@ class TeleopPanel(PanelBase):
             self._gripper_btn = gui.add_button("Toggle Gripper")
 
             from mj_manipulator.teleop import SafetyMode
+
             self._safety_dropdown = gui.add_dropdown(
                 "Safety",
                 options=["allow", "reject"],
@@ -326,7 +339,8 @@ class TeleopPanel(PanelBase):
 
         # Start background loop that steps the controller + syncs viewer
         self._teleop_thread = threading.Thread(
-            target=self._teleop_loop, daemon=True,
+            target=self._teleop_loop,
+            daemon=True,
         )
         self._teleop_thread.start()
 
@@ -353,6 +367,7 @@ class TeleopPanel(PanelBase):
             t0 = time.monotonic()
             try:
                 from mj_manipulator.teleop import TeleopState
+
                 with TeleopPanel._sim_lock:
                     state = self._controller.step()
                     if self._viewer is not None:

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Example: custom panel showing joint positions and simulation time.
 
 Usage:
@@ -8,10 +11,9 @@ from __future__ import annotations
 
 import sys
 
+import mujoco
 import numpy as np
 import viser
-
-import mujoco
 
 from mj_viser import MujocoViewer, PanelBase
 
@@ -26,15 +28,11 @@ class JointPanel(PanelBase):
         with gui.add_folder(self.name(), order=10):
             self._time_text = gui.add_text("Time", initial_value="0.000", disabled=True)
             self._qpos_text = gui.add_text("qpos", initial_value="", disabled=True)
-            self._nq_text = gui.add_text(
-                "nq", initial_value=str(viewer.model.nq), disabled=True
-            )
+            self._nq_text = gui.add_text("nq", initial_value=str(viewer.model.nq), disabled=True)
 
     def on_sync(self, viewer: MujocoViewer) -> None:
         self._time_text.value = f"{viewer.data.time:.3f}"
-        self._qpos_text.value = np.array2string(
-            viewer.data.qpos, precision=3, suppress_small=True, max_line_width=60
-        )
+        self._qpos_text.value = np.array2string(viewer.data.qpos, precision=3, suppress_small=True, max_line_width=60)
 
 
 def main() -> None:

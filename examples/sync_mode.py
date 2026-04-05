@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Example: user-controlled simulation loop with sync().
 
 Demonstrates how to run your own control logic and push state to the viewer.

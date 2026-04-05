@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Built-in GUI panel for simulation controls and visibility toggles."""
 
 from __future__ import annotations
@@ -71,6 +74,7 @@ class GuiManager:
 
         # --- Wire up callbacks ---
         if show_sim_controls:
+
             @self._play_btn.on_click
             def _(_: viser.GuiEvent) -> None:
                 with self._lock:

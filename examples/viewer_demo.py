@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Demo: MujocoViewer with built-in sim loop and a custom joint readout panel.
 
 Run with: uv run python examples/viewer_demo.py

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Per-geom-type builder functions that create Viser scene nodes from MuJoCo geoms."""
 
 from __future__ import annotations
@@ -9,7 +12,6 @@ import numpy as np
 import viser
 
 from mj_viser.mesh_utils import (
-    extract_mujoco_mesh,
     extract_mujoco_mesh_textured,
     make_capsule_mesh,
     make_ellipsoid_mesh,
@@ -40,9 +42,7 @@ def _geom_name(geom_id: int) -> str:
     return f"/mujoco/geoms/geom_{geom_id}"
 
 
-def build_box(
-    scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel
-) -> viser.BoxHandle:
+def build_box(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) -> viser.BoxHandle:
     size = model.geom_size[geom_id]
     return scene.add_box(
         _geom_name(geom_id),
@@ -52,9 +52,7 @@ def build_box(
     )
 
 
-def build_sphere(
-    scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel
-) -> viser.IcosphereHandle:
+def build_sphere(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) -> viser.IcosphereHandle:
     radius = float(model.geom_size[geom_id][0])
     return scene.add_icosphere(
         _geom_name(geom_id),
@@ -64,9 +62,7 @@ def build_sphere(
     )
 
 
-def build_cylinder(
-    scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel
-) -> viser.CylinderHandle:
+def build_cylinder(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) -> viser.CylinderHandle:
     size = model.geom_size[geom_id]
     return scene.add_cylinder(
         _geom_name(geom_id),
@@ -77,9 +73,7 @@ def build_cylinder(
     )
 
 
-def build_capsule(
-    scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel
-) -> viser.MeshHandle:
+def build_capsule(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) -> viser.MeshHandle:
     size = model.geom_size[geom_id]
     radius = float(size[0])
     half_height = float(size[1])
@@ -94,9 +88,7 @@ def build_capsule(
     )
 
 
-def build_ellipsoid(
-    scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel
-) -> viser.MeshHandle:
+def build_ellipsoid(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) -> viser.MeshHandle:
     semi_axes = model.geom_size[geom_id]
     verts, faces = make_ellipsoid_mesh(semi_axes)
     return scene.add_mesh_simple(
@@ -109,12 +101,12 @@ def build_ellipsoid(
     )
 
 
-def build_mesh(
-    scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel
-) -> viser.MeshHandle:
+def build_mesh(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) -> viser.MeshHandle:
     mesh_id = model.geom_dataid[geom_id]
     verts, faces, texcoords, texture_rgb = extract_mujoco_mesh_textured(
-        model, mesh_id, geom_id,
+        model,
+        mesh_id,
+        geom_id,
     )
 
     # Use textured mesh if UV + texture data available

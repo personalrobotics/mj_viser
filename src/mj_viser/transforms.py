@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Coordinate and rotation conversion between MuJoCo and Viser."""
 
 from __future__ import annotations
@@ -6,7 +9,6 @@ import math
 
 import numpy as np
 import numpy.typing as npt
-
 import viser
 
 

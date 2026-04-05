@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Basic example: load any MJCF model and launch the interactive viewer.
 
 Usage:

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Tests for procedural mesh generation and MuJoCo mesh extraction."""
 
 from __future__ import annotations

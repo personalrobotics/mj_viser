@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Quick demo: loads a simple MuJoCo scene and shows the GUI controls + rendered geoms.
 
 Run with: uv run python examples/gui_demo.py

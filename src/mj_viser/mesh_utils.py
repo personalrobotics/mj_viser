@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Procedural mesh generation and MuJoCo mesh extraction."""
 
 from __future__ import annotations
@@ -151,7 +154,9 @@ def extract_mujoco_mesh_textured(
     model: mujoco.MjModel,
     mesh_id: int,
     geom_id: int,
-) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.int32], npt.NDArray[np.float32] | None, npt.NDArray[np.uint8] | None]:
+) -> tuple[
+    npt.NDArray[np.float32], npt.NDArray[np.int32], npt.NDArray[np.float32] | None, npt.NDArray[np.uint8] | None
+]:
     """Extract vertices, faces, UV coordinates, and texture for a MuJoCo mesh.
 
     Args:
@@ -245,15 +250,40 @@ def _make_icosphere(
     # Initial icosahedron vertices
     t = (1.0 + math.sqrt(5.0)) / 2.0
     raw_verts = [
-        [-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0],
-        [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t],
-        [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1],
+        [-1, t, 0],
+        [1, t, 0],
+        [-1, -t, 0],
+        [1, -t, 0],
+        [0, -1, t],
+        [0, 1, t],
+        [0, -1, -t],
+        [0, 1, -t],
+        [t, 0, -1],
+        [t, 0, 1],
+        [-t, 0, -1],
+        [-t, 0, 1],
     ]
     raw_faces = [
-        [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
-        [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
-        [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
-        [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1],
+        [0, 11, 5],
+        [0, 5, 1],
+        [0, 1, 7],
+        [0, 7, 10],
+        [0, 10, 11],
+        [1, 5, 9],
+        [5, 11, 4],
+        [11, 10, 2],
+        [10, 7, 6],
+        [7, 1, 8],
+        [3, 9, 4],
+        [3, 4, 2],
+        [3, 2, 6],
+        [3, 6, 8],
+        [3, 8, 9],
+        [4, 9, 5],
+        [2, 4, 11],
+        [6, 2, 10],
+        [8, 6, 7],
+        [9, 8, 1],
     ]
 
     verts_arr = np.array(raw_verts, dtype=np.float64)
