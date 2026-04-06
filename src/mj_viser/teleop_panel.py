@@ -193,10 +193,6 @@ class TeleopPanel(PanelBase):
         arm_label: Display label (e.g., "Right Arm").
     """
 
-    # Shared lock across all TeleopPanel instances — prevents concurrent
-    # MuJoCo access when multiple arms are teleoped simultaneously.
-    _sim_lock = threading.Lock()
-
     def __init__(
         self,
         arm: Arm,
@@ -207,6 +203,7 @@ class TeleopPanel(PanelBase):
         arm_label: str = "Arm",
         abort_fn: object | None = None,
         clear_abort_fn: object | None = None,
+        sim_lock: object | None = None,
     ):
         self._arm = arm
         self._controller = controller
@@ -216,6 +213,7 @@ class TeleopPanel(PanelBase):
         self._arm_label = arm_label
         self._abort_fn = abort_fn  # callable → bool, checked in teleop loop
         self._clear_abort_fn = clear_abort_fn  # callable → None, clears abort
+        self._sim_lock = sim_lock  # RLock from SimContext
         self._gizmo = None
         self._ghost = None
         self._is_teleop_active = False
@@ -368,7 +366,7 @@ class TeleopPanel(PanelBase):
             try:
                 from mj_manipulator.teleop import TeleopState
 
-                with TeleopPanel._sim_lock:
+                with self._sim_lock:
                     state = self._controller.step()
                     if self._viewer is not None:
                         self._viewer.sync()
