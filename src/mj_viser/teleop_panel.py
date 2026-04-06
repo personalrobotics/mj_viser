@@ -207,6 +207,8 @@ class TeleopPanel(PanelBase):
         arm_label: str = "Arm",
         abort_fn: object | None = None,
         clear_abort_fn: object | None = None,
+        request_abort_fn: object | None = None,
+        idle_event: object | None = None,
     ):
         self._arm = arm
         self._controller = controller
@@ -216,6 +218,8 @@ class TeleopPanel(PanelBase):
         self._arm_label = arm_label
         self._abort_fn = abort_fn  # callable → bool, checked in teleop loop
         self._clear_abort_fn = clear_abort_fn  # callable → None, clears abort
+        self._request_abort_fn = request_abort_fn  # callable → None, triggers abort
+        self._idle_event = idle_event  # threading.Event, set when no trajectory running
         self._gizmo = None
         self._ghost = None
         self._is_teleop_active = False
@@ -320,7 +324,14 @@ class TeleopPanel(PanelBase):
     # _teleop_loop thread to avoid recursion (step → sync → on_sync).
 
     def _activate_teleop(self) -> None:
-        # Clear any stale abort from Stop button
+        # If a trajectory is executing, abort it and wait for it to finish
+        # so the teleop thread doesn't race with mj_step.
+        if self._idle_event is not None and not self._idle_event.is_set():
+            if self._request_abort_fn is not None:
+                self._request_abort_fn()
+            self._idle_event.wait(timeout=5.0)
+
+        # Clear any stale abort from Stop button / the abort we just triggered
         if self._clear_abort_fn is not None:
             self._clear_abort_fn()
 
