@@ -346,12 +346,14 @@ class TeleopPanel(PanelBase):
             if self._event_loop is not None:
                 self._event_loop.register_teleop(self._controller, self)
 
-        if self._event_loop is not None:
-            # Submit to run on the physics thread after execute() yields.
-            # This blocks the viser callback thread until activation
-            # completes — that's fine, it's a button click handler.
+        if self._event_loop is not None and self._event_loop.is_executing(arm_name):
+            # This arm is executing — submit to queue and wait for execute()
+            # to yield (via abort) before activating on the main thread.
             self._event_loop.submit(_do_activate).result()
         else:
+            # This arm is idle (or no event loop). Activate directly —
+            # controller.activate() only reads data (safe), and
+            # register_teleop is thread-safe.
             _do_activate()
 
     def _deactivate_teleop(self) -> None:
