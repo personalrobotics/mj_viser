@@ -203,6 +203,7 @@ class TeleopPanel(PanelBase):
         clear_abort_fn: object | None = None,
         request_abort_fn: object | None = None,
         event_loop: object | None = None,
+        ownership: object | None = None,
     ):
         self._arm = arm
         self._controller = controller
@@ -214,6 +215,7 @@ class TeleopPanel(PanelBase):
         self._clear_abort_fn = clear_abort_fn  # callable → None, clears abort
         self._request_abort_fn = request_abort_fn  # callable → None, triggers abort
         self._event_loop = event_loop  # PhysicsEventLoop — steps teleop from main thread
+        self._ownership = ownership  # OwnershipRegistry for per-arm preemption
         self._gizmo = None
         self._ghost = None
         self._is_teleop_active = False
@@ -318,14 +320,22 @@ class TeleopPanel(PanelBase):
     # _teleop_loop thread to avoid recursion (step → sync → on_sync).
 
     def _activate_teleop(self) -> None:
-        # Abort any running trajectory so execute() yields and the event
-        # loop can process our activation on the main thread.
-        if self._request_abort_fn is not None:
+        arm_name = self._arm.config.name
+
+        if self._ownership is not None:
+            # Per-arm preemption: only aborts THIS arm's trajectory,
+            # other arms continue unaffected.
+            from mj_manipulator.ownership import OwnerKind
+
+            self._ownership.preempt(arm_name, OwnerKind.TELEOP, self._controller)
+        elif self._request_abort_fn is not None:
+            # Legacy fallback: global abort (aborts all arms)
             self._request_abort_fn()
 
         def _do_activate():
-            # Clear the abort we just triggered (or any stale one)
-            if self._clear_abort_fn is not None:
+            if self._ownership is not None:
+                self._ownership.clear_abort(arm_name)
+            elif self._clear_abort_fn is not None:
                 self._clear_abort_fn()
             ee_pose = self._controller.activate()
             self._is_teleop_active = True
@@ -342,9 +352,9 @@ class TeleopPanel(PanelBase):
                 self._event_loop.register_teleop(self._controller, self)
 
         if self._event_loop is not None:
-            # Submit to run on the physics thread after execute() yields.
-            # This blocks the viser callback thread until activation
-            # completes — that's fine, it's a button click handler.
+            # Submit to run on the physics thread. In tick-driven mode,
+            # commands are processed immediately (non-blocking), so this
+            # completes on the next tick.
             self._event_loop.submit(_do_activate).result()
         else:
             _do_activate()
@@ -354,6 +364,10 @@ class TeleopPanel(PanelBase):
         if self._event_loop is not None:
             self._event_loop.unregister_teleop(self._controller)
         self._controller.deactivate()
+
+        if self._ownership is not None:
+            arm_name = self._arm.config.name
+            self._ownership.release(arm_name, self._controller)
 
         self._gizmo.visible = False
         if self._ghost is not None:
