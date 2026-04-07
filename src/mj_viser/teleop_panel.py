@@ -201,6 +201,7 @@ class TeleopPanel(PanelBase):
         arm_label: str = "Arm",
         abort_fn: object | None = None,
         clear_abort_fn: object | None = None,
+        request_abort_fn: object | None = None,
         event_loop: object | None = None,
     ):
         self._arm = arm
@@ -211,6 +212,7 @@ class TeleopPanel(PanelBase):
         self._arm_label = arm_label
         self._abort_fn = abort_fn  # callable → bool, checked in teleop loop
         self._clear_abort_fn = clear_abort_fn  # callable → None, clears abort
+        self._request_abort_fn = request_abort_fn  # callable → None, triggers abort
         self._event_loop = event_loop  # PhysicsEventLoop — steps teleop from main thread
         self._gizmo = None
         self._ghost = None
@@ -316,27 +318,36 @@ class TeleopPanel(PanelBase):
     # _teleop_loop thread to avoid recursion (step → sync → on_sync).
 
     def _activate_teleop(self) -> None:
-        # Clear any stale abort from Stop button
-        if self._clear_abort_fn is not None:
-            self._clear_abort_fn()
+        # Abort any running trajectory so execute() yields and the event
+        # loop can process our activation on the main thread.
+        if self._request_abort_fn is not None:
+            self._request_abort_fn()
 
-        ee_pose = self._controller.activate()
-        self._is_teleop_active = True
+        def _do_activate():
+            # Clear the abort we just triggered (or any stale one)
+            if self._clear_abort_fn is not None:
+                self._clear_abort_fn()
+            ee_pose = self._controller.activate()
+            self._is_teleop_active = True
+            # Update gizmo (viser GUI calls are thread-safe even from main thread)
+            self._gizmo.wxyz = xmat_to_wxyz(ee_pose[:3, :3].flatten())
+            self._gizmo.position = tuple(ee_pose[:3, 3])
+            self._gizmo.visible = True
+            if self._ghost is not None:
+                self._ghost.set_visible(True)
+            self._activate_btn.name = "Deactivate"
+            self._activate_btn.color = "red"
+            # Register so tick() steps this controller
+            if self._event_loop is not None:
+                self._event_loop.register_teleop(self._controller, self)
 
-        self._gizmo.wxyz = xmat_to_wxyz(ee_pose[:3, :3].flatten())
-        self._gizmo.position = tuple(ee_pose[:3, 3])
-        self._gizmo.visible = True
-
-        if self._ghost is not None:
-            self._ghost.set_visible(True)
-
-        self._activate_btn.name = "Deactivate"
-        self._activate_btn.color = "red"
-
-        # Register with event loop — teleop stepping happens on the main
-        # thread via inputhook tick(), not in a background thread.
         if self._event_loop is not None:
-            self._event_loop.register_teleop(self._controller, self)
+            # Submit to run on the physics thread after execute() yields.
+            # This blocks the viser callback thread until activation
+            # completes — that's fine, it's a button click handler.
+            self._event_loop.submit(_do_activate).result()
+        else:
+            _do_activate()
 
     def _deactivate_teleop(self) -> None:
         self._is_teleop_active = False
