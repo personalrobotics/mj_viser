@@ -318,39 +318,34 @@ class TeleopPanel(PanelBase):
     # _teleop_loop thread to avoid recursion (step → sync → on_sync).
 
     def _activate_teleop(self) -> None:
-        # Only abort if THIS arm is executing a trajectory. If the other
-        # arm is executing, let it continue — we can teleop in parallel.
-        arm_name = self._arm.config.name
-        if (
-            self._event_loop is not None
-            and self._event_loop.is_executing(arm_name)
-            and self._request_abort_fn is not None
-        ):
+        # Always abort — if a primitive is running (planning or executing),
+        # the abort flag will be checked when execute() starts or on its
+        # next waypoint. If nothing is running, _do_activate clears it.
+        if self._request_abort_fn is not None:
             self._request_abort_fn()
 
+        # Immediate visual feedback (viser GUI calls are thread-safe)
+        self._activate_btn.name = "Deactivate"
+        self._activate_btn.color = "red"
+        self._status_md.content = "🟡 **Activating...**"
+
         def _do_activate():
-            # Clear the abort we just triggered (or any stale one)
             if self._clear_abort_fn is not None:
                 self._clear_abort_fn()
             ee_pose = self._controller.activate()
             self._is_teleop_active = True
-            # Update gizmo (viser GUI calls are thread-safe even from main thread)
             self._gizmo.wxyz = xmat_to_wxyz(ee_pose[:3, :3].flatten())
             self._gizmo.position = tuple(ee_pose[:3, 3])
             self._gizmo.visible = True
             if self._ghost is not None:
                 self._ghost.set_visible(True)
-            self._activate_btn.name = "Deactivate"
-            self._activate_btn.color = "red"
-            # Register so tick() steps this controller
             if self._event_loop is not None:
                 self._event_loop.register_teleop(self._controller, self)
 
         if self._event_loop is not None:
-            # Submit to run on the physics thread. execute() cooperatively
-            # drains the queue between control cycles, so this runs promptly
-            # even if another arm is mid-trajectory.
-            self._event_loop.submit(_do_activate).result()
+            # Fire and forget — don't block viser thread. Activation
+            # completes when tick() processes it after execute yields.
+            self._event_loop.submit(_do_activate)
         else:
             _do_activate()
 
