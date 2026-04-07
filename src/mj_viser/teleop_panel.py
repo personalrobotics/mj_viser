@@ -318,9 +318,14 @@ class TeleopPanel(PanelBase):
     # _teleop_loop thread to avoid recursion (step → sync → on_sync).
 
     def _activate_teleop(self) -> None:
-        # Abort any running trajectory so execute() yields and the event
-        # loop can process our activation on the main thread.
-        if self._request_abort_fn is not None:
+        # Only abort if THIS arm is executing a trajectory. If the other
+        # arm is executing, let it continue — we can teleop in parallel.
+        arm_name = self._arm.config.name
+        if (
+            self._event_loop is not None
+            and self._event_loop.is_executing(arm_name)
+            and self._request_abort_fn is not None
+        ):
             self._request_abort_fn()
 
         def _do_activate():
