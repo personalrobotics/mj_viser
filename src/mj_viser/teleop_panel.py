@@ -323,15 +323,13 @@ class TeleopPanel(PanelBase):
         arm_name = self._arm.config.name
 
         if self._ownership is not None:
-            # Per-arm preemption: aborts this arm's trajectory runner.
+            # Per-arm preemption: only aborts THIS arm's trajectory,
+            # other arms continue unaffected.
             from mj_manipulator.ownership import OwnerKind
 
             self._ownership.preempt(arm_name, OwnerKind.TELEOP, self._controller)
-
-        # Also fire global abort so the primitive's retry loop stops.
-        # Per-arm abort gets cleared by _do_activate (runner needs it),
-        # but global abort stays set until the primitive clears it.
-        if self._request_abort_fn is not None:
+        elif self._request_abort_fn is not None:
+            # Legacy fallback: global abort (aborts all arms)
             self._request_abort_fn()
 
         def _do_activate():
