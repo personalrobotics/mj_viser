@@ -204,6 +204,7 @@ class TeleopPanel(PanelBase):
         request_abort_fn: object | None = None,
         event_loop: object | None = None,
         ownership: object | None = None,
+        enable_ghost: bool = True,
     ):
         self._arm = arm
         self._controller = controller
@@ -216,6 +217,7 @@ class TeleopPanel(PanelBase):
         self._request_abort_fn = request_abort_fn  # callable → None, triggers abort
         self._event_loop = event_loop  # PhysicsEventLoop — steps teleop from main thread
         self._ownership = ownership  # OwnershipRegistry for per-arm preemption
+        self._enable_ghost = enable_ghost
         self._gizmo = None
         self._ghost = None
         self._is_teleop_active = False
@@ -242,14 +244,15 @@ class TeleopPanel(PanelBase):
         )
 
         # Ghost hand as child of gizmo — moves automatically
-        self._ghost = GhostHand(
-            server,
-            self._model,
-            self._data,
-            self._gripper_prefix,
-            self._arm.ee_site_id,
-            name=f"{gizmo_name}/ghost",
-        )
+        if self._enable_ghost and self._gripper_prefix:
+            self._ghost = GhostHand(
+                server,
+                self._model,
+                self._data,
+                self._gripper_prefix,
+                self._arm.ee_site_id,
+                name=f"{gizmo_name}/ghost",
+            )
 
         @self._gizmo.on_update
         def _on_gizmo_update(event) -> None:
