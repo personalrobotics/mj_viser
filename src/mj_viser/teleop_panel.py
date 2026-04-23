@@ -298,7 +298,13 @@ class TeleopPanel(PanelBase):
 
         @self._snap_btn.on_click
         def _on_snap(event) -> None:
-            ee_pose = self._arm.get_ee_pose()
+            def _do_snap():
+                return self._arm.get_ee_pose()
+
+            if self._event_loop is not None:
+                ee_pose = self._event_loop.run_on_physics_thread(_do_snap)
+            else:
+                ee_pose = _do_snap()
             self._gizmo.wxyz = xmat_to_wxyz(ee_pose[:3, :3].flatten())
             self._gizmo.position = tuple(ee_pose[:3, 3])
 
