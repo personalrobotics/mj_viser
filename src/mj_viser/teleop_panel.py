@@ -299,7 +299,18 @@ class TeleopPanel(PanelBase):
         @self._snap_btn.on_click
         def _on_snap(event) -> None:
             def _do_snap():
-                return self._arm.get_ee_pose()
+                ee_pose = self._arm.get_ee_pose()
+                # Update the teleop target so the arm stops tracking the
+                # old gizmo position. Viser's on_update doesn't fire on
+                # programmatic gizmo position changes, so we must set the
+                # target explicitly.
+                self._controller.set_target_pose(ee_pose)
+                # Reset the CartesianController's internal reference so
+                # the twist path re-seeds from current qpos instead of
+                # integrating from the old target.
+                if self._controller._cart_ctrl is not None:
+                    self._controller._cart_ctrl.reset()
+                return ee_pose
 
             if self._event_loop is not None:
                 ee_pose = self._event_loop.run_on_physics_thread(_do_snap)
