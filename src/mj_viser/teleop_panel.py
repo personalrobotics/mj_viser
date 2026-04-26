@@ -343,11 +343,18 @@ class TeleopPanel(PanelBase):
         arm_name = self._arm.config.name
 
         if self._ownership is not None:
-            # Per-arm preemption: only aborts THIS arm's trajectory,
-            # other arms continue unaffected.
             from mj_manipulator.ownership import OwnerKind
 
-            self._ownership.preempt(arm_name, OwnerKind.TELEOP, self._controller)
+            kind, owner = self._ownership.owner_of(arm_name)
+            if kind == OwnerKind.TELEOP and owner is self._controller:
+                # Already owned by this controller — just re-activate
+                pass
+            elif kind == OwnerKind.IDLE:
+                # Arm is free — acquire it
+                self._ownership.acquire(arm_name, OwnerKind.TELEOP, self._controller)
+            else:
+                # Owned by something else — preempt
+                self._ownership.preempt(arm_name, OwnerKind.TELEOP, self._controller)
         elif self._request_abort_fn is not None:
             # Legacy fallback: global abort (aborts all arms)
             self._request_abort_fn()
