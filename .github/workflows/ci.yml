@@ -11,24 +11,25 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
+# Third-party actions are pinned to commit SHAs (tag in the trailing comment).
 jobs:
-  test:
+  # Gates, then build the sdist and the wheel (from the sdist) exactly once.
+  build:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           enable-cache: true
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
 
-      - name: Install dependencies
-        run: uv sync --all-extras --dev
+      - name: Install locked dependencies
+        run: uv sync --locked --all-extras
 
       - name: Ruff lint
         run: uv run ruff check .
@@ -36,31 +37,83 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check .
 
+      - name: Strict type check
+        run: uv run mypy src
+
+      - name: Build sdist and wheel
+        run: |
+          uv build --out-dir dist
+          (cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  # Tests run against the uploaded wheel, not a rebuild.
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+
+      - name: Verify artifact hashes
+        run: (cd dist && sha256sum -c SHA256SUMS)
+
       - name: Pytest
         run: |
-          if [ -d tests ]; then
-            uv run pytest tests/ -v
-          else
-            echo "No tests/ directory; skipping pytest."
-          fi
+          uv sync --locked --all-extras
+          uv run pytest tests/ -v
 
       # Same end-to-end scenario against the locked and newest dependencies on every
       # Python, and against every declared minimum on the oldest supported Python.
       - name: Clean-wheel end-to-end check
         run: |
           envs="locked latest"
-          if [ "${{ matrix.python-version }}" = "3.10" ]; then envs="lowest $envs"; fi
-          scripts/smoke_wheel.sh dist/smoke $envs
+          if [ "${{ matrix.python-version }}" = "3.11" ]; then envs="lowest $envs"; fi
+          MJ_VISER_WHEEL="$(ls dist/mj_viser-*.whl)" scripts/smoke_wheel.sh e2e $envs
+          cp dist/SHA256SUMS e2e/
 
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: e2e-py${{ matrix.python-version }}
+          path: e2e/
+          if-no-files-found: error
+
+  # Legacy integration hook. It needs a token that is not configured, so it is skipped
+  # rather than failing main until robot-code owns a replacement.
   notify-robot-code:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    env:
+      DISPATCH_TOKEN: ${{ secrets.ROBOT_CODE_DISPATCH_TOKEN }}
     steps:
+      - name: Report missing token
+        if: env.DISPATCH_TOKEN == ''
+        run: echo "::notice::ROBOT_CODE_DISPATCH_TOKEN is not configured; skipping robot-code dispatch."
+
       - name: Dispatch integration run
-        uses: peter-evans/repository-dispatch@v3
+        if: env.DISPATCH_TOKEN != ''
+        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3.0.0
         with:
-          token: ${{ secrets.ROBOT_CODE_DISPATCH_TOKEN }}
+          token: ${{ env.DISPATCH_TOKEN }}
           repository: personalrobotics/robot-code
           event-type: sibling-updated
           client-payload: '{"repo":"${{ github.event.repository.name }}","sha":"${{ github.sha }}"}'

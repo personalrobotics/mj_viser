@@ -9,12 +9,12 @@ authors = [
 maintainers = [
     {name = "Siddhartha Srinivasa", email = "siddhartha.srinivasa@gmail.com"},
 ]
-requires-python = ">=3.10,<3.15"
+requires-python = ">=3.11,<3.15"
 readme = "README.md"
 dependencies = [
     "mujoco>=3.5",
     "numpy>=1.24",
-    "pillow>=8.3.2",
+    "pillow>=9.2",
     "trimesh>=3.21.7",
     "viser>=1.1.1,<1.2",
 ]
@@ -50,3 +50,8 @@ select = ["F", "E", "W", "I"]
 
 [tool.mypy]
 strict = true
+
+[[tool.mypy.overrides]]
+# MuJoCo ships no type stubs or py.typed marker.
+module = ["mujoco", "mujoco.*"]
+ignore_missing_imports = true

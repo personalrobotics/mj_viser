@@ -2,14 +2,15 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Siddhartha Srinivasa
 #
-# Build the mj_viser wheel once, install it into one fresh virtualenv per
+# Build the mj_viser wheel once (or take MJ_VISER_WHEEL=path/to/wheel, as CI does
+# to test the exact artifact it uploads), install it into one fresh virtualenv per
 # environment, and run the end-to-end check scripts/smoke_wheel.py in each.
 #
-# Usage: scripts/smoke_wheel.sh [OUT_DIR] [ENV...]   (default: dist/smoke latest)
+# Usage: [MJ_VISER_WHEEL=...] scripts/smoke_wheel.sh [OUT_DIR] [ENV...]   (default: dist/smoke latest)
 # ENV:
 #   latest  newest releases allowed by pyproject.toml (what `pip install` gets today)
 #   locked  exact versions from uv.lock
-#   lowest  every direct dependency at its declared minimum, on Python 3.10
+#   lowest  every direct dependency at its declared minimum, on Python 3.11
 # Artifacts, per ENV:
 #   OUT_DIR/ENV/smoke_report.json  results, input-state hashes, installed versions, wheel sha256
 #   OUT_DIR/ENV/two_states.viser   Viser recording of the two rendered states
@@ -22,8 +23,12 @@ envs=("${@:-latest}")
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-uv build --wheel --out-dir "$work/dist" "$repo" >/dev/null
-wheel="$(ls "$work"/dist/mj_viser-*.whl)"
+if [ -n "${MJ_VISER_WHEEL:-}" ]; then
+  wheel="$(cd "$(dirname "$MJ_VISER_WHEEL")" && pwd)/$(basename "$MJ_VISER_WHEEL")"
+else
+  uv build --wheel --out-dir "$work/dist" "$repo" >/dev/null
+  wheel="$(ls "$work"/dist/mj_viser-*.whl)"
+fi
 sha="$(shasum -a 256 "$wheel" | cut -d' ' -f1)"
 
 for env in "${envs[@]}"; do
@@ -40,8 +45,8 @@ for env in "${envs[@]}"; do
       uv pip install --quiet --python "$venv/bin/python" --no-deps "$wheel"
       ;;
     lowest)
-      uv venv --quiet --python 3.10 "$venv"
-      uv pip compile --quiet --resolution lowest-direct --python-version 3.10 --no-header \
+      uv venv --quiet --python 3.11 "$venv"
+      uv pip compile --quiet --resolution lowest-direct --python-version 3.11 --no-header \
         "$repo/pyproject.toml" -o "$work/lowest.txt"
       uv pip install --quiet --python "$venv/bin/python" -r "$work/lowest.txt"
       uv pip install --quiet --python "$venv/bin/python" --no-deps "$wheel"

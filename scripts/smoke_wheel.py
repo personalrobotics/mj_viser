@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import faulthandler
 import hashlib
+import html.parser
 import importlib
 import importlib.metadata
 import importlib.util
@@ -28,8 +29,10 @@ import tokenize
 import urllib.parse
 from importlib.metadata import version
 
+import msgspec
 import mujoco
 import numpy as np
+import zstandard
 
 import mj_viser
 
@@ -112,6 +115,44 @@ def expected_orientations(model: mujoco.MjModel, qpos: list[float]) -> dict[int,
 
 def same_rotation(a: np.ndarray, b: np.ndarray) -> bool:
     return bool(np.allclose(a, b, atol=1e-6) or np.allclose(a, -b, atol=1e-6))
+
+
+def replay_recording(recording: bytes) -> list[tuple[float, dict]]:  # type: ignore[type-arg]
+    """Decode a .viser file the way the Viser client does: u64 size, zstd body of
+    [u64 msgpack length][msgpack {messages: [[time, message], ...]}][binary buffers]."""
+    inner_size = int.from_bytes(recording[:8], "little")
+    inner = zstandard.ZstdDecompressor().decompress(recording[8:], max_output_size=inner_size)
+    n = int.from_bytes(inner[:8], "little")
+    payload = msgspec.msgpack.decode(inner[8 : 8 + n])
+    return [(float(t), m) for t, m in payload["messages"]]
+
+
+def poses_at(messages: list[tuple[float, dict]], before: float) -> dict[str, dict[str, list[float]]]:  # type: ignore[type-arg]
+    """Final position/orientation of every node after applying messages earlier than ``before``."""
+    poses: dict[str, dict[str, list[float]]] = {}
+    for t, m in messages:
+        if t >= before:
+            break
+        if m["type"] == "SetPositionMessage":
+            poses.setdefault(m["name"], {})["position"] = m["position"]
+        elif m["type"] == "SetOrientationMessage":
+            poses.setdefault(m["name"], {})["wxyz"] = m["wxyz"]
+    return poses
+
+
+class TagCollector(html.parser.HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.tags: set[str] = set()
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.tags.add(tag)
+
+
+def tags_in(markup: str) -> set[str]:
+    collector = TagCollector()
+    collector.feed(markup)
+    return collector.tags
 
 
 def expect_raises(exc: type[BaseException], fn) -> str:  # type: ignore[no-untyped-def]
@@ -207,6 +248,21 @@ def main(out_dir: str, env_label: str) -> None:
         }
         serializer.insert_sleep(0.5)
     recording = serializer.serialize()
+
+    # --- Untrusted display strings are shown as text, never rendered as markup ------------
+    payload = '<img src=x onerror="alert(1)"><script>alert(2)</script>'
+    viewer.set_hud("probe", payload)
+    panel = mj_viser.SensorPanel(
+        title=payload, channels=[mj_viser.SensorChannel(0, payload, color='red;"><img src=x>')], use_folder=False
+    )
+    viewer.add_panel(panel)
+    markup = {"hud": viewer._huds["probe"].content, "sensor_legend": panel._legend.content}  # type: ignore[union-attr]
+    for where, content in markup.items():
+        injected = tags_in(content) - {"div", "span"}
+        if injected:
+            raise SystemExit(f"{where} rendered injected markup {sorted(injected)}: {content}")
+    report["markup_escaped"] = sorted(markup)
+
     viewer.close()
     if viewer.is_open:
         raise SystemExit("viewer still open after close()")
@@ -215,6 +271,23 @@ def main(out_dir: str, env_label: str) -> None:
         f.write(recording)
     report["states"] = states_report
     report["recording"] = {"file": "two_states.viser", "sha256": hashlib.sha256(recording).hexdigest()}
+
+    # --- The recording itself replays to both states ---------------------------------------
+    # Oracle on the artifact users open, independent of the live server: replaying the
+    # file's messages up to each state's timestamp yields MuJoCo's kinematics for that state.
+    messages = replay_recording(recording)
+    for name, window_end in (("A", 0.5), ("B", float("inf"))):
+        poses = poses_at(messages, window_end)
+        exp_pos = expected_positions(model, STATES[name])
+        exp_q = expected_orientations(model, STATES[name])
+        for g in range(model.ngeom):
+            node = poses.get(f"/mujoco/geoms/geom_{g}", {})
+            if not (
+                np.allclose(node.get("position", [np.nan] * 3), exp_pos[g], atol=1e-6)
+                and same_rotation(np.asarray(node.get("wxyz", [np.nan] * 4)), exp_q[g])
+            ):
+                raise SystemExit(f"recording state {name}, geom {g}: {node} != {exp_pos[g]}, {exp_q[g]}")
+    report["recording"]["replays_to_states"] = ["A", "B"]
 
     # --- Update failures return to the caller ---------------------------------------------
     # Adversarial models: every array the old size check compared is the same length.
