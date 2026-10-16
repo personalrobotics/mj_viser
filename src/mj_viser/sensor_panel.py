@@ -34,7 +34,7 @@ class SensorChannel:
 class SensorPanel(PanelBase):
     """Real-time scrolling plot of MuJoCo sensor data using uPlot.
 
-    Reads from ``data.sensordata`` at the given indices on each sync() call
+    Reads from ``data.sensordata`` at the given indices on each viewer.update() call
     and plots the values as a time series.
 
     Example::

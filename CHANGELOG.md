@@ -1,12 +1,50 @@
 # Changelog
 
-## Unreleased
+## Unreleased (0.2.0)
+
+### Changed
+
+- The viewer lifecycle is caller-driven and read-only (#30). `MujocoViewer(model)`
+  no longer takes `MjData`; call `url = viewer.open()`, then `viewer.update(data)`
+  whenever you want a frame, then `viewer.close()`. The viewer copies `data`,
+  recomputes kinematics on the copy, and never steps, resets, retains, or
+  mutates the caller's state. `viewer.data` is that copy.
+- Defaults to `host="127.0.0.1"`. Pass `host="0.0.0.0"` to serve other machines.
+- `port=0` binds a free port; `viewer.url` reports the bound address.
+- `open()` raises `OSError` when the address cannot be bound, instead of hanging
+  or silently moving to another port. `update()` raises `ValueError` for data from
+  a model with different sizes and `RuntimeError` when the viewer is not open.
+- `close()` is idempotent and releases the port; a closed viewer can be reopened.
+  `server`, `url`, and `set_hud` are valid only while open.
+- Requires `viser>=1.1.1`.
+
+### Fixed
+
+- No geoms rendered with recent MuJoCo releases (seen with 3.16), whose enums no
+  longer compare equal to the numpy ints in `model.geom_type`.
 
 ### Removed
 
+- `launch()`, `launch_passive()`, `sync()`, `is_running()`, the built-in
+  simulation thread, the Play/Pause/Step/Reset/Speed panel, and the `show_gui`
+  and `show_sim_controls` arguments (#30).
 - `TeleopPanel` and `GhostHand` (`mj_viser.teleop_panel`). mj_viser no longer
   knows about `mj_manipulator` arms, teleop controllers, ownership, safety, or
   recording. Rendering is read-only; applications own commands. (#26)
+
+### Migration from launch/sync
+
+| Before | After |
+| --- | --- |
+| `MujocoViewer(model, data)` | `MujocoViewer(model)` |
+| `viewer.launch()` | your loop: `mj_step` then `viewer.update(data)`, between `open()` and `close()` |
+| `viewer.launch_passive()` | `viewer.open()` |
+| `viewer.sync()` | `viewer.update(data)` |
+| `while viewer.is_running():` | your own loop condition; `viewer.is_open` reports lifecycle state |
+| `show_sim_controls=False` | (nothing to hide) |
+| `show_gui=False` | `show_visibility=False` |
+| writing through `viewer.data` | write your own `MjData` and pass it to `update` |
+| `viewer._server`, `viewer._panels.append(p)` | `viewer.server` (while open), `viewer.add_panel(p)` |
 
 ### Migration for Geodude and ADA
 

@@ -1,13 +1,15 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Siddhartha Srinivasa
 
-"""MujocoViewer: the main public class tying together scene, GUI, and simulation."""
+"""MujocoViewer: the main public class tying together scene, GUI, and server lifecycle."""
 
 from __future__ import annotations
 
+import socket
+import sys
 import threading
-import time
 import webbrowser
+from collections.abc import Callable
 
 import mujoco
 import viser
@@ -16,58 +18,72 @@ from mj_viser.gui import GuiManager
 from mj_viser.panels import PanelBase
 from mj_viser.scene import SceneManager
 
+# MjData arrays whose lengths must match the viewer's model, with the MjModel size they follow.
+_SIZED_FIELDS = {
+    "qpos": "nq",
+    "qvel": "nv",
+    "ctrl": "nu",
+    "act": "na",
+    "xpos": "nbody",
+    "geom_xpos": "ngeom",
+    "site_xpos": "nsite",
+    "mocap_pos": "nmocap",
+    "sensordata": "nsensordata",
+}
+
 
 class MujocoViewer:
     """Web-based MuJoCo viewer using Viser.
 
-    Two modes of operation:
+    The viewer only renders. The caller owns the model state, the simulation
+    clock, and the update schedule; the viewer never steps, resets, or mutates
+    the caller's ``MjData``::
 
-    **Built-in simulation loop** (blocking)::
+        viewer = MujocoViewer(model)
+        url = viewer.open()  # starts the server; raises if it cannot
+        while running:
+            mujoco.mj_step(model, data)  # your code
+            viewer.update(data)  # copies data, then renders the copy
+        viewer.close()
 
-        viewer = MujocoViewer(model, data)
-        viewer.launch()  # runs sim + opens browser
-
-    **User-controlled loop** (non-blocking)::
-
-        viewer = MujocoViewer(model, data)
-        viewer.launch_passive()
-        while viewer.is_running():
-            # your control logic here
-            mujoco.mj_step(model, data)
-            viewer.sync()
+    ``with MujocoViewer(model) as viewer:`` opens on entry and closes on exit.
+    A closed viewer can be opened again.
     """
 
     def __init__(
         self,
         model: mujoco.MjModel,
-        data: mujoco.MjData,
         *,
-        host: str = "0.0.0.0",
+        host: str = "127.0.0.1",
         port: int = 8080,
         label: str | None = None,
-        show_gui: bool = True,
-        show_sim_controls: bool | None = None,
-        show_visibility: bool | None = None,
+        show_visibility: bool = True,
     ) -> None:
+        """
+        Args:
+            model: The MuJoCo model to render.
+            host: Interface to bind. Defaults to loopback only; pass
+                ``"0.0.0.0"`` to serve other machines.
+            port: Port to bind, or 0 for an OS-assigned port. A requested
+                port that is unavailable raises instead of moving to another.
+            label: Browser tab title.
+            show_visibility: Show the geom-group visibility panel.
+        """
         self._model = model
-        self._data = data
         self._host = host
         self._port = port
         self._label = label
-        self._show_gui = show_gui
-        # None = inherit from show_gui
-        self._show_sim_controls = show_sim_controls if show_sim_controls is not None else show_gui
-        self._show_visibility = show_visibility if show_visibility is not None else show_gui
-        self._running = False
-        self._sim_thread: threading.Thread | None = None
+        self._show_visibility = show_visibility
         self._panels: list[PanelBase] = []
+        self._select_callbacks: list[Callable[[int, str], None]] = []
 
-        self._server = viser.ViserServer(host=host, port=port)
-        if label is not None:
-            from viser._messages import RunJavascriptMessage
+        # Viewer-owned copy of the last rendered state. Never the caller's MjData.
+        self._data = mujoco.MjData(model)
+        # Guards self._data and scene handles against concurrent Viser GUI callbacks.
+        self._lock = threading.RLock()
 
-            self._server._websock_interface.queue_message(RunJavascriptMessage(source=f"document.title = {label!r};"))
-        self._scene_mgr = SceneManager(self._server, model, data)
+        self._server: viser.ViserServer | None = None
+        self._scene_mgr: SceneManager | None = None
         self._gui_mgr: GuiManager | None = None
         self._huds: dict[str, viser.GuiHtmlHandle] = {}
 
@@ -78,13 +94,30 @@ class MujocoViewer:
 
     @property
     def data(self) -> mujoco.MjData:
-        """The MuJoCo data (current state)."""
+        """The viewer's copy of the last state passed to :meth:`update`.
+
+        Read it from panels; do not modify it. Changes are overwritten by the
+        next update and never reach the caller's simulation.
+        """
         return self._data
 
     @property
     def server(self) -> viser.ViserServer:
-        """The underlying Viser server, for advanced usage."""
+        """The underlying Viser server, for advanced usage. Only valid while open."""
+        if self._server is None:
+            raise RuntimeError("MujocoViewer is not open; call open() first")
         return self._server
+
+    @property
+    def is_open(self) -> bool:
+        """True between a successful :meth:`open` and :meth:`close`."""
+        return self._server is not None
+
+    @property
+    def url(self) -> str:
+        """The URL the server is actually bound to. Only valid while open."""
+        server = self.server
+        return f"http://{server.get_host()}:{server.get_port()}"
 
     def set_hud(
         self,
@@ -96,6 +129,7 @@ class MujocoViewer:
 
         Creates a fixed-positioned HTML element that overlays the canvas,
         outside the sidebar. Multiple HUDs can coexist with different names.
+        Only valid while open.
 
         Args:
             name: Unique identifier for this HUD element.
@@ -123,7 +157,7 @@ class MujocoViewer:
         if name in self._huds:
             self._huds[name].content = html
         else:
-            self._huds[name] = self._server.gui.add_html(html)
+            self._huds[name] = self.server.gui.add_html(html)
 
     def remove_hud(self, name: str) -> None:
         """Remove an HUD overlay."""
@@ -131,76 +165,86 @@ class MujocoViewer:
             self._huds[name].remove()
             del self._huds[name]
 
-    def on_select(self, callback) -> None:
+    def on_select(self, callback: Callable[[int, str], None]) -> None:
         """Register a callback for geom selection: callback(geom_id, body_name)."""
-        self._scene_mgr.on_select(callback)
+        self._select_callbacks.append(callback)
+        if self._scene_mgr is not None:
+            self._scene_mgr.on_select(callback)
 
     def add_panel(self, panel: PanelBase) -> None:
-        """Register a custom GUI panel.
-
-        Must be called before ``launch()`` or ``launch_passive()``.
-        """
+        """Register a custom GUI panel. Panels added while open are set up immediately."""
         self._panels.append(panel)
+        if self._server is not None:
+            panel.setup(self._server.gui, self)
 
-    def launch(self, open_browser: bool = True) -> None:
-        """Start the built-in simulation loop (blocking).
+    def open(self, open_browser: bool = False) -> str:
+        """Start the server and build the scene from the model's default state.
 
-        This builds the scene, starts a simulation thread, and blocks until
-        the viewer is closed.
+        Returns:
+            The URL the server is bound to.
 
-        Args:
-            open_browser: If True, open the viewer URL in the default browser.
+        Raises:
+            RuntimeError: If the viewer is already open.
+            OSError: If ``host``/``port`` cannot be bound.
         """
-        self._build(open_browser=open_browser)
-        self._running = True
-        self._sim_thread = threading.Thread(target=self._sim_loop, daemon=True)
-        self._sim_thread.start()
+        if self._server is not None:
+            raise RuntimeError("MujocoViewer is already open")
+
+        # Viser blocks forever when it cannot bind (its worker exits without
+        # signalling ready), and silently moves to the next port when the
+        # requested one is taken. Probe first so both surface here as OSError.
+        _check_bindable(self._host, self._port)
+        server = viser.ViserServer(host=self._host, port=self._port, verbose=False)
         try:
-            while self._running:
-                time.sleep(0.1)
-        except KeyboardInterrupt:
-            pass
-        finally:
-            self.close()
+            if self._port != 0 and server.get_port() != self._port:
+                raise OSError(f"port {self._port} on {self._host} became unavailable during startup")
+            self._server = server
+            self._build()
+        except BaseException:
+            self._teardown()
+            server.stop()
+            raise
 
-    def launch_passive(self, open_browser: bool = True) -> None:
-        """Start the viewer in the background (non-blocking).
+        url = self.url
+        if open_browser:
+            webbrowser.open(url)
+        return url
 
-        After calling this, use :meth:`sync` in your own loop to push state
-        updates to the viewer.
+    def update(self, data: mujoco.MjData) -> None:
+        """Render ``data``.
 
-        Args:
-            open_browser: If True, open the viewer URL in the default browser.
+        Copies ``data`` into the viewer's own ``MjData`` and recomputes
+        kinematics on the copy, so the rendered pose always follows ``qpos``
+        and mocap poses even if the caller did not run forward kinematics.
+        ``data`` is not modified or retained.
+
+        Raises:
+            RuntimeError: If the viewer is not open.
+            ValueError: If ``data`` belongs to a model with different sizes.
         """
-        self._build(open_browser=open_browser)
-        self._running = True
+        if self._scene_mgr is None:
+            raise RuntimeError("MujocoViewer is not open; call open() first")
+        mismatched = [f for f, n in _SIZED_FIELDS.items() if len(getattr(data, f)) != getattr(self._model, n)]
+        if mismatched:
+            raise ValueError(f"data does not match the viewer's model (differs in {', '.join(mismatched)})")
 
-    def sync(self) -> None:
-        """Push current ``MjData`` state to the viewer.
-
-        Call this in your own loop after stepping the simulation.
-        """
-        self._scene_mgr.update_transforms()
-
-        if self._gui_mgr is not None:
-            self._scene_mgr.update_visibility(self._gui_mgr.visible_groups())
-
-        for panel in self._panels:
-            panel.on_sync(self)
+        with self._lock:
+            mujoco.mj_copyData(self._data, self._model, data)
+            mujoco.mj_kinematics(self._model, self._data)
+            self._scene_mgr.update_transforms()
+            for panel in self._panels:
+                panel.on_sync(self)
 
     def close(self) -> None:
-        """Shut down the viewer and stop any simulation thread."""
-        self._running = False
-        if self._sim_thread is not None:
-            self._sim_thread.join(timeout=2.0)
-            self._sim_thread = None
-        self._server.stop()
-
-    def is_running(self) -> bool:
-        """True if the viewer is still active."""
-        return self._running
+        """Stop the server and release its port. Safe to call more than once."""
+        server = self._server
+        self._teardown()
+        if server is not None:
+            server.stop()
 
     def __enter__(self) -> MujocoViewer:
+        if self._server is None:
+            self.open()
         return self
 
     def __exit__(self, *args: object) -> None:
@@ -210,63 +254,58 @@ class MujocoViewer:
     # Internal
     # ------------------------------------------------------------------
 
-    def _build(self, open_browser: bool) -> None:
-        """One-time scene + GUI setup."""
-        # Compute forward kinematics so geom positions are valid before rendering.
-        mujoco.mj_forward(self._model, self._data)
-        self._scene_mgr.build_scene()
+    def _build(self) -> None:
+        """Scene + GUI setup for a freshly started server."""
+        assert self._server is not None
+        if self._label is not None:
+            from viser._messages import RunJavascriptMessage
 
-        if self._show_gui or self._show_visibility:
-            self._gui_mgr = GuiManager(
-                self._server,
-                self._model,
-                show_sim_controls=self._show_sim_controls,
-                show_visibility=self._show_visibility,
+            self._server._websock_interface.queue_message(
+                RunJavascriptMessage(source=f"document.title = {self._label!r};")
             )
-            # Apply initial group visibility (groups 3+ hidden by default)
-            self._scene_mgr.update_visibility(self._gui_mgr.visible_groups())
-            # Wire visibility toggles to update immediately (no sync needed)
-            self._gui_mgr._visibility_callback.append(
-                lambda: self._scene_mgr.update_visibility(self._gui_mgr.visible_groups())
-            )
+
+        with self._lock:
+            # Render the model's default pose until the first update().
+            self._data = mujoco.MjData(self._model)
+            mujoco.mj_kinematics(self._model, self._data)
+            self._scene_mgr = SceneManager(self._server, self._model, self._data, self._lock)
+            for cb in self._select_callbacks:
+                self._scene_mgr.on_select(cb)
+            self._scene_mgr.build_scene()
+
+            if self._show_visibility:
+                self._gui_mgr = GuiManager(self._server, self._model)
+                scene_mgr, gui_mgr = self._scene_mgr, self._gui_mgr
+                scene_mgr.update_visibility(gui_mgr.visible_groups())
+                gui_mgr.on_visibility_change(lambda: scene_mgr.update_visibility(gui_mgr.visible_groups()))
 
         for panel in self._panels:
             panel.setup(self._server.gui, self)
 
-        if open_browser:
-            webbrowser.open(f"http://localhost:{self._port}")
+    def _teardown(self) -> None:
+        with self._lock:
+            self._server = None
+            self._scene_mgr = None
+            self._gui_mgr = None
+            self._huds.clear()
 
-    def _sim_loop(self) -> None:
-        """Simulation thread for launch() mode."""
-        dt = self._model.opt.timestep
-        prev_groups: set[int] = set()
 
-        while self._running:
-            gui = self._gui_mgr
+def _check_bindable(host: str, port: int) -> None:
+    """Raise OSError if a TCP server could not bind ``host:port`` right now.
 
-            # Reset
-            if gui is not None and gui.should_reset:
-                mujoco.mj_resetData(self._model, self._data)
-                mujoco.mj_forward(self._model, self._data)
-
-            # Step
-            if gui is None or gui.is_playing or gui.should_step:
-                mujoco.mj_step(self._model, self._data)
-
-            # Update scene
-            self._scene_mgr.update_transforms()
-
-            # Visibility
-            if gui is not None:
-                groups = gui.visible_groups()
-                if groups != prev_groups:
-                    self._scene_mgr.update_visibility(groups)
-                    prev_groups = groups
-
-            # Notify panels
-            for panel in self._panels:
-                panel.on_sync(self)
-
-            # Pace to real-time
-            speed = gui.speed if gui is not None else 1.0
-            time.sleep(dt / speed)
+    Mirrors asyncio's server socket setup (every resolved address, SO_REUSEADDR
+    on POSIX, IPV6_V6ONLY) so a port just released by close() is not reported
+    as busy.
+    """
+    for family, socktype, proto, _, sockaddr in socket.getaddrinfo(
+        host, port, type=socket.SOCK_STREAM, flags=socket.AI_PASSIVE
+    ):
+        with socket.socket(family, socktype, proto) as sock:
+            if sys.platform != "win32":
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            if family == socket.AF_INET6:
+                sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+            try:
+                sock.bind(sockaddr)
+            except OSError as e:
+                raise OSError(e.errno, f"cannot serve on {host}:{port}: {e.strerror}") from e

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Siddhartha Srinivasa
 
-"""Basic example: load any MJCF model and launch the interactive viewer.
+"""Basic example: load any MJCF model, step it yourself, and render each step.
 
 Usage:
     uv run python examples/basic_launch.py path/to/model.xml
@@ -15,6 +15,7 @@ Usage:
 from __future__ import annotations
 
 import sys
+import time
 
 import mujoco
 
@@ -29,8 +30,16 @@ def main() -> None:
     model = mujoco.MjModel.from_xml_path(sys.argv[1])
     data = mujoco.MjData(model)
 
-    viewer = MujocoViewer(model, data)
-    viewer.launch()
+    with MujocoViewer(model) as viewer:
+        print(f"Viewer at {viewer.url}. Ctrl+C to stop.")
+        try:
+            while True:
+                # Your control logic here, e.g. data.ctrl[:] = ...
+                mujoco.mj_step(model, data)
+                viewer.update(data)
+                time.sleep(model.opt.timestep)
+        except KeyboardInterrupt:
+            pass
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Siddhartha Srinivasa
 
-"""Quick demo: loads a simple MuJoCo scene and shows the GUI controls + rendered geoms.
+"""Quick demo: every primitive geom type, one per geom group, falling under gravity.
 
 Run with: uv run python examples/gui_demo.py
 Then open http://localhost:8080 in your browser.
@@ -12,10 +12,8 @@ from __future__ import annotations
 import time
 
 import mujoco
-import viser
 
-from mj_viser.gui import GuiManager
-from mj_viser.scene import SceneManager
+from mj_viser import MujocoViewer
 
 XML = """
 <mujoco>
@@ -51,38 +49,17 @@ XML = """
 def main() -> None:
     model = mujoco.MjModel.from_xml_string(XML)
     data = mujoco.MjData(model)
-    mujoco.mj_forward(model, data)
 
-    server = viser.ViserServer(port=8080)
-    scene_mgr = SceneManager(server, model, data)
-    scene_mgr.build_scene()
-    gui_mgr = GuiManager(server, model)
-
-    print("Open http://localhost:8080 — try Play/Pause/Step/Reset and visibility toggles")
-
-    dt = model.opt.timestep
-    prev_groups: set[int] = set()
-
-    while True:
-        # Handle reset
-        if gui_mgr.should_reset:
-            mujoco.mj_resetData(model, data)
-            mujoco.mj_forward(model, data)
-
-        # Handle play / step
-        if gui_mgr.is_playing or gui_mgr.should_step:
-            mujoco.mj_step(model, data)
-
-        # Update scene
-        scene_mgr.update_transforms()
-
-        # Update visibility if changed
-        groups = gui_mgr.visible_groups()
-        if groups != prev_groups:
-            scene_mgr.update_visibility(groups)
-            prev_groups = groups
-
-        time.sleep(dt / gui_mgr.speed)
+    with MujocoViewer(model, port=8080) as viewer:
+        print(f"Viewer at {viewer.url}. Ctrl+C to stop.")
+        try:
+            while True:
+                # Your control logic here, e.g. data.ctrl[:] = ...
+                mujoco.mj_step(model, data)
+                viewer.update(data)
+                time.sleep(model.opt.timestep)
+        except KeyboardInterrupt:
+            pass
 
 
 if __name__ == "__main__":
