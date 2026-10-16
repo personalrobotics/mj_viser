@@ -9,10 +9,14 @@ import math
 import threading
 
 import mujoco
+import numpy as np
 import viser
+import viser.transforms as vtf
 
 from mj_viser.geom_builders import GEOM_BUILDERS
-from mj_viser.transforms import configure_scene, mj_pos_to_viser, xmat_to_wxyz
+
+# Selection labels float this far above the selected geom (MuJoCo and Viser are both z-up here).
+_LABEL_OFFSET = np.array([0.0, 0.0, 0.05])
 
 
 class SceneManager:
@@ -41,7 +45,7 @@ class SceneManager:
 
     def build_scene(self) -> None:
         """Create Viser scene nodes for all supported MuJoCo geoms."""
-        configure_scene(self._server)
+        self._server.scene.set_up_direction("+z")  # match MuJoCo, so positions map 1:1
         self._setup_lighting()
         self._setup_ground_grid()
 
@@ -81,8 +85,8 @@ class SceneManager:
 
                 # Always update transforms (even for hidden geoms, so they're
                 # correct if toggled back on)
-                handle.position = mj_pos_to_viser(pos)
-                handle.wxyz = xmat_to_wxyz(self._data.geom_xmat[geom_id])
+                handle.position = pos
+                handle.wxyz = vtf.SO3.from_matrix(self._data.geom_xmat[geom_id].reshape(3, 3)).wxyz
 
                 # Visibility: hidden by group toggle or underground
                 group = int(self._model.geom_group[geom_id])
@@ -95,7 +99,7 @@ class SceneManager:
                     self._clear_label()
                     self._selected_geom = None
                 else:
-                    self._label_handle.position = tuple(p + o for p, o in zip(mj_pos_to_viser(pos), (0, 0, 0.05)))
+                    self._label_handle.position = pos + _LABEL_OFFSET
 
     def update_visibility(self, visible_groups: set[int]) -> None:
         """Toggle geom visibility based on MuJoCo geom groups."""
@@ -156,7 +160,7 @@ class SceneManager:
             "/mujoco/selection_label",
             text=text,
             wxyz=(1, 0, 0, 0),
-            position=tuple(p + o for p, o in zip(mj_pos_to_viser(position), (0, 0, 0.05))),
+            position=np.asarray(position) + _LABEL_OFFSET,
         )
 
     def _clear_label(self) -> None:

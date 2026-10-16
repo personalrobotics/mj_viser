@@ -53,7 +53,7 @@ class MujocoViewer:
                 ``"0.0.0.0"`` to serve other machines.
             port: Port to bind, or 0 for an OS-assigned port. A requested
                 port that is unavailable raises instead of moving to another.
-            label: Browser tab title.
+            label: Heading shown at the top of the GUI panel.
             show_visibility: Show the geom-group visibility panel.
         """
         self._model = model
@@ -184,7 +184,7 @@ class MujocoViewer:
         # signalling ready), and silently moves to the next port when the
         # requested one is taken. Probe first so both surface here as OSError.
         _check_bindable(self._host, self._port)
-        server = viser.ViserServer(host=self._host, port=self._port, verbose=False)
+        server = viser.ViserServer(host=self._host, port=self._port, label=self._label, verbose=False)
         try:
             if self._port != 0 and server.get_port() != self._port:
                 raise OSError(f"port {self._port} on {self._host} became unavailable during startup")
@@ -248,13 +248,6 @@ class MujocoViewer:
     def _build(self) -> None:
         """Scene + GUI setup for a freshly started server."""
         assert self._server is not None
-        if self._label is not None:
-            from viser._messages import RunJavascriptMessage
-
-            self._server._websock_interface.queue_message(
-                RunJavascriptMessage(source=f"document.title = {self._label!r};")
-            )
-
         with self._lock:
             # Render the model's default pose until the first update().
             self._data = mujoco.MjData(self._model)

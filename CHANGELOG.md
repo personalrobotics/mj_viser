@@ -18,7 +18,10 @@
 - `viewer.url` brackets IPv6 literals (`http://[::1]:8080`).
 - `close()` is idempotent and releases the port; a closed viewer can be reopened.
   `server`, `url`, and `set_hud` are valid only while open.
-- Requires `viser>=1.1.1` and `mujoco>=3.1` (for `MjData.model`).
+- Requires `mujoco>=3.5` (`mj_copyData` in the Python bindings), `viser>=1.1.1,<1.2`,
+  `numpy>=1.24`, and `trimesh>=3.21.7` (now declared; it was imported but undeclared).
+- `label` is passed to Viser's public `label` and appears as the GUI panel heading.
+  It no longer sets the browser tab title, which needed a private Viser message (#27).
 
 ### Fixed
 
@@ -30,6 +33,9 @@
 - `launch()`, `launch_passive()`, `sync()`, `is_running()`, the built-in
   simulation thread, the Play/Pause/Step/Reset/Speed panel, and the `show_gui`
   and `show_sim_controls` arguments (#30).
+- `mj_viser.transforms` (`xmat_to_wxyz`, `mj_pos_to_viser`, `configure_scene`):
+  use `viser.transforms.SO3.from_matrix(xmat.reshape(3, 3)).wxyz` (#27).
+- The unused `plotly` dependency (#27).
 - `TeleopPanel` and `GhostHand` (`mj_viser.teleop_panel`). mj_viser no longer
   knows about `mj_manipulator` arms, teleop controllers, ownership, safety, or
   recording. Rendering is read-only; applications own commands. (#26)

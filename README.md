@@ -115,6 +115,18 @@ viewer.open()
 viewer = MujocoViewer(model, show_visibility=False)
 ```
 
+## Compatibility
+
+| | Supported |
+| --- | --- |
+| Python | 3.10–3.12 |
+| MuJoCo | `>=3.5` (first release with `mj_copyData` in the Python bindings) |
+| Viser | `>=1.1.1,<1.2` |
+| NumPy | `>=1.24` |
+| trimesh | `>=3.21.7` |
+
+CI runs the same end-to-end check from a clean wheel install against the locked versions (`uv.lock`) and the newest allowed releases on every supported Python, and against every declared minimum on Python 3.10.
+
 ## Examples
 
 ```bash
@@ -136,7 +148,7 @@ cd mj_viser
 uv sync --all-extras
 uv run pytest
 uv run ruff check src/ tests/
-scripts/smoke_wheel.sh   # end-to-end check from a clean wheel install; writes dist/smoke/{smoke_report.json,two_states.viser}
+scripts/smoke_wheel.sh dist/smoke lowest locked latest   # end-to-end check from a clean wheel install, per environment
 ```
 
 ## License
