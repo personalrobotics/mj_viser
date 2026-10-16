@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 import threading
+from collections.abc import Callable
 
 import mujoco
 import numpy as np
@@ -41,7 +42,7 @@ class SceneManager:
         self._hidden_groups: set[int] = set()  # groups toggled off by user
         self._selected_geom: int | None = None
         self._label_handle: viser.SceneNodeHandle | None = None
-        self._on_select_callbacks: list = []  # [(callable(geom_id, body_name))]
+        self._on_select_callbacks: list[Callable[[int, str], None]] = []
 
     def build_scene(self) -> None:
         """Create Viser scene nodes for all supported MuJoCo geoms."""
@@ -67,12 +68,8 @@ class SceneManager:
             handle = builder(scene, geom_id, self._model)
             self._geom_handles[geom_id] = handle
 
-            # Click handler for selection
-            gid = geom_id  # capture for closure
-
-            @handle.on_click
-            def _(event: viser.ScenePointerEvent, _gid=gid) -> None:
-                self._handle_click(_gid)
+            # Click handler for selection (default arg captures this geom_id)
+            handle.on_click(lambda _event, gid=geom_id: self._handle_click(gid))
 
         # Set initial transforms
         self.update_transforms()
@@ -174,7 +171,7 @@ class SceneManager:
         self._clear_label()
         self._selected_geom = None
 
-    def on_select(self, callback) -> None:
+    def on_select(self, callback: Callable[[int, str], None]) -> None:
         """Register a callback for geom selection: callback(geom_id, body_name)."""
         self._on_select_callbacks.append(callback)
 

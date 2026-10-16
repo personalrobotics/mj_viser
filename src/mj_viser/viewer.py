@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import html
 import socket
 import sys
 import threading
@@ -123,7 +124,7 @@ class MujocoViewer:
 
         Args:
             name: Unique identifier for this HUD element.
-            content: HTML content to display.
+            content: Text to display. It is shown literally: markup is escaped, never rendered.
             position: One of "top-left", "top-right", "bottom-left",
                 "bottom-right", "top", "bottom".
         """
@@ -136,18 +137,18 @@ class MujocoViewer:
             "bottom": "bottom:8px;left:50%;transform:translateX(-50%);",
         }.get(position, "bottom-left:8px;left:8px;")
 
-        html = (
+        markup = (
             f'<div style="position:fixed;{css_pos}z-index:1000;'
             f"background:rgba(0,0,0,0.7);color:white;padding:4px 10px;"
             f"border-radius:4px;font-family:monospace;font-size:12px;"
             f'pointer-events:none;white-space:nowrap;">'
-            f"{content}</div>"
+            f"{html.escape(content)}</div>"
         )
 
         if name in self._huds:
-            self._huds[name].content = html
+            self._huds[name].content = markup
         else:
-            self._huds[name] = self.server.gui.add_html(html)
+            self._huds[name] = self.server.gui.add_html(markup)
 
     def remove_hud(self, name: str) -> None:
         """Remove an HUD overlay."""

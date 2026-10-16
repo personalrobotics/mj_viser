@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import html
 from collections import deque
 from dataclasses import dataclass
 
@@ -74,6 +75,7 @@ class SensorPanel(PanelBase):
         self._data: dict[int, deque[float]] = {ch.index: deque(maxlen=max_points) for ch in self._channels}
 
         self._plot: viser.GuiUplotHandle | None = None
+        self._legend: viser.GuiHtmlHandle | None = None
         self._start_time: float | None = None
 
     def name(self) -> str:
@@ -85,7 +87,7 @@ class SensorPanel(PanelBase):
         ctx = gui.add_folder(self._title, order=5) if self._use_folder else contextlib.nullcontext()
         with ctx:
             if not self._use_folder:
-                gui.add_markdown(f"**{self._title}**")
+                gui.add_markdown(f"**{html.escape(self._title)}**")
             # Time axis series + one per channel
             series = (
                 uplot.Series(label="Time"),
@@ -107,7 +109,7 @@ class SensorPanel(PanelBase):
                 series=series,
                 axes=(
                     uplot.Axis(size=28),
-                    uplot.Axis(size=30, label=self._y_label if self._y_label else None),
+                    uplot.Axis(size=30, label=self._y_label) if self._y_label else uplot.Axis(size=30),
                 ),
                 legend=uplot.Legend(show=False),
                 aspect=self._aspect,
@@ -117,13 +119,13 @@ class SensorPanel(PanelBase):
             legend_items = " ".join(
                 f'<span style="margin-right:6px;">'
                 f'<span style="display:inline-block;width:8px;height:8px;'
-                f"background:{ch.color};border-radius:1px;margin-right:2px;"
+                f"background:{html.escape(ch.color)};border-radius:1px;margin-right:2px;"
                 f'vertical-align:middle;"></span>'
-                f'<span style="font-size:10px;color:#666;">{ch.label}</span>'
+                f'<span style="font-size:10px;color:#666;">{html.escape(ch.label)}</span>'
                 f"</span>"
                 for ch in self._channels
             )
-            gui.add_html(f'<div style="padding:0 2px;">{legend_items}</div>')
+            self._legend = gui.add_html(f'<div style="padding:0 2px;">{legend_items}</div>')
 
     def on_sync(self, viewer: MujocoViewer) -> None:
         if self._plot is None or not self._channels:

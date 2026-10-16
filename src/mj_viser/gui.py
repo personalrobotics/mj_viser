@@ -37,7 +37,7 @@ class GuiManager:
                 self._group_toggles[g] = toggle
 
                 @toggle.on_update
-                def _(_: viser.GuiEvent) -> None:
+                def _(_: viser.GuiEvent[viser.GuiCheckboxHandle]) -> None:
                     for cb in self._visibility_callbacks:
                         cb()
 
