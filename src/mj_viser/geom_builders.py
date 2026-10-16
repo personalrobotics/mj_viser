@@ -101,7 +101,7 @@ def build_ellipsoid(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) 
     )
 
 
-def build_mesh(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) -> viser.MeshHandle:
+def build_mesh(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) -> viser.MeshHandle | viser.GlbHandle:
     mesh_id = model.geom_dataid[geom_id]
     verts, faces, texcoords, texture_rgb = extract_mujoco_mesh_textured(
         model,
@@ -115,13 +115,13 @@ def build_mesh(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) -> vi
         from PIL import Image
 
         image = Image.fromarray(texture_rgb)
-        material = trimesh.visual.material.PBRMaterial(
+        material = trimesh.visual.material.PBRMaterial(  # type: ignore[no-untyped-call]
             baseColorFactor=[1.0, 1.0, 1.0, 1.0],
             baseColorTexture=image,
             metallicFactor=0.0,
             roughnessFactor=0.8,
         )
-        visual = trimesh.visual.TextureVisuals(uv=texcoords, material=material)
+        visual = trimesh.visual.TextureVisuals(uv=texcoords, material=material)  # type: ignore[no-untyped-call]
         mesh = trimesh.Trimesh(vertices=verts, faces=faces, visual=visual)
         return scene.add_mesh_trimesh(
             _geom_name(geom_id),
