@@ -1,13 +1,15 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Siddhartha Srinivasa
 
-"""Demo: MujocoViewer with built-in sim loop and a custom joint readout panel.
+"""Demo: MujocoViewer with a caller-owned sim loop and a custom readout panel.
 
 Run with: uv run python examples/viewer_demo.py
 Then open http://localhost:8080 in your browser.
 """
 
 from __future__ import annotations
+
+import time
 
 import numpy as np
 import viser
@@ -63,9 +65,18 @@ def main() -> None:
     model = mujoco.MjModel.from_xml_string(XML)
     data = mujoco.MjData(model)
 
-    viewer = MujocoViewer(model, data, port=8080)
+    viewer = MujocoViewer(model, port=8080)
     viewer.add_panel(SimInfoPanel())
-    viewer.launch()
+    with viewer:
+        print(f"Viewer at {viewer.url}. Ctrl+C to stop.")
+        try:
+            while True:
+                # Your control logic here, e.g. data.ctrl[:] = ...
+                mujoco.mj_step(model, data)
+                viewer.update(data)
+                time.sleep(model.opt.timestep)
+        except KeyboardInterrupt:
+            pass
 
 
 if __name__ == "__main__":

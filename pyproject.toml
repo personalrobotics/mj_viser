@@ -1,6 +1,6 @@
 [project]
 name = "mj-viser"
-version = "0.1.0"
+version = "0.2.0"
 description = "Web-based MuJoCo viewer using Viser"
 license = "MIT"
 authors = [
@@ -12,8 +12,8 @@ maintainers = [
 requires-python = ">=3.10"
 readme = "README.md"
 dependencies = [
-    "mujoco>=3.0",
-    "viser>=0.2.0",
+    "mujoco>=3.1",
+    "viser>=1.1.1",
     "numpy",
     "plotly>=5.0",
 ]

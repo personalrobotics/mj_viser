@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import math
+import threading
 
 import mujoco
 import viser
@@ -26,8 +27,10 @@ class SceneManager:
         server: viser.ViserServer,
         model: mujoco.MjModel,
         data: mujoco.MjData,
+        lock: threading.RLock,
     ) -> None:
         self._server = server
+        self._lock = lock  # held by the viewer while it writes data; taken here for GUI callbacks
         self._model = model
         self._data = data
         self._geom_handles: dict[int, viser.SceneNodeHandle] = {}
@@ -96,6 +99,10 @@ class SceneManager:
 
     def update_visibility(self, visible_groups: set[int]) -> None:
         """Toggle geom visibility based on MuJoCo geom groups."""
+        with self._lock:
+            self._apply_visibility(visible_groups)
+
+    def _apply_visibility(self, visible_groups: set[int]) -> None:
         all_groups = {int(self._model.geom_group[gid]) for gid in self._geom_handles}
         self._hidden_groups = all_groups - visible_groups
         # Apply immediately (don't wait for update_transforms)
@@ -111,6 +118,10 @@ class SceneManager:
 
     def _handle_click(self, geom_id: int) -> None:
         """Handle a click on a geom — toggle selection label."""
+        with self._lock:
+            self._toggle_selection(geom_id)
+
+    def _toggle_selection(self, geom_id: int) -> None:
         if self._selected_geom == geom_id:
             # Click same geom again — deselect
             self._clear_label()

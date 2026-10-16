@@ -42,7 +42,7 @@ class PanelBase(ABC):
 
     @abstractmethod
     def setup(self, gui: viser.GuiApi, viewer: MujocoViewer) -> None:
-        """Called once when the panel is registered. Add GUI elements here.
+        """Called each time the viewer opens (or on add_panel while open). Add GUI elements here.
 
         Args:
             gui: The viser GUI API (``server.gui``).
@@ -51,7 +51,7 @@ class PanelBase(ABC):
         ...
 
     def on_sync(self, viewer: MujocoViewer) -> None:
-        """Called each frame after transforms are updated.
+        """Called by every ``viewer.update()`` after the scene is updated.
 
         Override to update panel state (e.g., read sensor values).
         Default implementation does nothing.

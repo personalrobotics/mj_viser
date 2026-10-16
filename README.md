@@ -1,8 +1,8 @@
 # mj_viser
 
-Web-based MuJoCo viewer built on [Viser](https://github.com/nerfstudio-project/viser). Interactive simulation in the browser with extensible GUI panels for robotics applications.
+Web-based MuJoCo viewer built on [Viser](https://github.com/nerfstudio-project/viser). Renders caller-supplied MuJoCo state in the browser, with extensible GUI panels for robotics applications.
 
-mj_viser renders MuJoCo state; it does not command robots. Teleoperation, task controls, arm ownership, safety policy, and recording belong to the application (for example Geodude or ADA), which decides what to execute.
+mj_viser renders MuJoCo state; it does not step simulations or command robots. Your code owns the model state, the clock, and when to render. Teleoperation, task controls, arm ownership, safety policy, and recording belong to the application (for example Geodude or ADA), which decides what to execute.
 
 <p align="center">
   <img src="assets/g1_viewer.png" alt="Unitree G1 humanoid in mj_viser viewer" width="800"/>
@@ -12,13 +12,13 @@ mj_viser renders MuJoCo state; it does not command robots. Teleoperation, task c
 
 - **All primitive geom types** — box, sphere, cylinder, capsule, ellipsoid, and mesh
 - **Textures** — PBR materials, per-face-vertex UV mapping, STL double-sided rendering
-- **Two API modes** — built-in simulation loop or user-controlled sync
+- **Caller-driven lifecycle** — `open()`, `update(data)`, `close()`; the viewer copies state and never mutates yours
 - **Extensible panels** — add custom GUI panels for sensors, cameras, controls, etc.
 - **Sensor plots** — built-in `SensorPanel` with real-time scrolling time series (uPlot)
 - **HUD overlay** — fixed-positioned status text over the 3D viewport
 - **Click-to-select** — click any geom to show its body name; label follows the object
 - **Visibility groups** — toggle MuJoCo geom groups on/off
-- **Granular GUI control** — show/hide simulation controls and visibility panel independently
+- **Loopback by default** — binds `127.0.0.1`; serving other machines is an explicit `host=` choice
 - **Multi-client** — multiple browser tabs viewing the same simulation
 - **Beautiful rendering** — three-point lighting, proper materials, transparency support
 
@@ -32,7 +32,7 @@ pip install -e .
 
 ## Quick Start
 
-### Built-in simulation loop
+### Render your own loop
 
 ```python
 import mujoco
@@ -41,34 +41,26 @@ from mj_viser import MujocoViewer
 model = mujoco.MjModel.from_xml_path("robot.xml")
 data = mujoco.MjData(model)
 
-viewer = MujocoViewer(model, data)
-viewer.launch()  # Opens browser at http://localhost:8080
-```
+viewer = MujocoViewer(model)       # host="127.0.0.1", port=8080 by default; port=0 picks a free port
+url = viewer.open()                # raises OSError if the address cannot be bound
+print(url)
 
-### User-controlled loop
-
-```python
-import mujoco
-from mj_viser import MujocoViewer
-
-model = mujoco.MjModel.from_xml_path("robot.xml")
-data = mujoco.MjData(model)
-
-viewer = MujocoViewer(model, data)
-viewer.launch_passive()
-
-while viewer.is_running():
+while running:
     data.ctrl[:] = my_controller(data)
-    mujoco.mj_step(model, data)
-    viewer.sync()
+    mujoco.mj_step(model, data)    # you step; the viewer never does
+    viewer.update(data)            # copies data and renders the copy
+
+viewer.close()                     # releases the port; open() again to reuse the viewer
 ```
+
+`with MujocoViewer(model) as viewer:` opens on entry and closes on exit. `update()` recomputes kinematics on its copy, so setting `qpos` alone (for example when replaying a trace) is enough. Panels read that copy as `viewer.data`.
 
 ### Sensor plots
 
 ```python
 from mj_viser import MujocoViewer, SensorPanel, SensorChannel
 
-viewer = MujocoViewer(model, data)
+viewer = MujocoViewer(model)
 viewer.add_panel(SensorPanel(
     title="Wrist F/T",
     channels=[
@@ -78,7 +70,7 @@ viewer.add_panel(SensorPanel(
     ],
     window_seconds=5.0,
 ))
-viewer.launch()
+viewer.open()
 ```
 
 ### HUD overlay
@@ -111,16 +103,16 @@ class MyPanel(PanelBase):
     def on_sync(self, viewer: MujocoViewer) -> None:
         self._text.value = f"Time: {viewer.data.time:.2f}"
 
-viewer = MujocoViewer(model, data)
+viewer = MujocoViewer(model)
 viewer.add_panel(MyPanel())
-viewer.launch()
+viewer.open()
 ```
 
-### Granular GUI control
+### Hide the visibility panel
 
 ```python
-# Disable built-in panels for apps that manage their own GUI
-viewer = MujocoViewer(model, data, show_sim_controls=False, show_visibility=False)
+# For apps that manage their own GUI
+viewer = MujocoViewer(model, show_visibility=False)
 ```
 
 ## Examples
@@ -129,11 +121,8 @@ viewer = MujocoViewer(model, data, show_sim_controls=False, show_visibility=Fals
 # Clone MuJoCo Menagerie for robot models
 git clone https://github.com/google-deepmind/mujoco_menagerie.git
 
-# Interactive viewer
+# Step a model and render each step
 uv run python examples/basic_launch.py mujoco_menagerie/universal_robots_ur5e/scene.xml
-
-# User-controlled loop
-uv run python examples/sync_mode.py mujoco_menagerie/franka_emika_panda/scene.xml
 
 # Custom panel demo
 uv run python examples/custom_panel.py mujoco_menagerie/unitree_g1/scene.xml
@@ -147,7 +136,7 @@ cd mj_viser
 uv sync --all-extras
 uv run pytest
 uv run ruff check src/ tests/
-scripts/smoke_wheel.sh   # build the wheel, install it in a clean venv, open the viewer; writes dist/smoke/smoke_report.json
+scripts/smoke_wheel.sh   # end-to-end check from a clean wheel install; writes dist/smoke/{smoke_report.json,two_states.viser}
 ```
 
 ## License

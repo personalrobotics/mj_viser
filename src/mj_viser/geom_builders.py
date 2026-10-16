@@ -141,11 +141,12 @@ def build_mesh(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) -> vi
 
 
 # Dispatch table: MuJoCo geom type → builder function.
+# Keyed by int: newer mujoco enums no longer compare equal to the numpy ints in model.geom_type.
 GEOM_BUILDERS: dict[int, Callable[[viser.SceneApi, int, mujoco.MjModel], Any]] = {
-    mujoco.mjtGeom.mjGEOM_BOX: build_box,
-    mujoco.mjtGeom.mjGEOM_SPHERE: build_sphere,
-    mujoco.mjtGeom.mjGEOM_CYLINDER: build_cylinder,
-    mujoco.mjtGeom.mjGEOM_CAPSULE: build_capsule,
-    mujoco.mjtGeom.mjGEOM_ELLIPSOID: build_ellipsoid,
-    mujoco.mjtGeom.mjGEOM_MESH: build_mesh,
+    int(mujoco.mjtGeom.mjGEOM_BOX): build_box,
+    int(mujoco.mjtGeom.mjGEOM_SPHERE): build_sphere,
+    int(mujoco.mjtGeom.mjGEOM_CYLINDER): build_cylinder,
+    int(mujoco.mjtGeom.mjGEOM_CAPSULE): build_capsule,
+    int(mujoco.mjtGeom.mjGEOM_ELLIPSOID): build_ellipsoid,
+    int(mujoco.mjtGeom.mjGEOM_MESH): build_mesh,
 }
