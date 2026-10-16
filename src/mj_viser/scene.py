@@ -1,30 +1,133 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Siddhartha Srinivasa
 
-"""Scene manager: builds and updates Viser scene nodes from MuJoCo model/data."""
+"""Scene manager: mirrors the MuJoCo body tree as Viser frames and keeps it posed."""
 
 from __future__ import annotations
 
-import math
+import re
 import threading
 from collections.abc import Callable
+from typing import Any
 
 import mujoco
 import numpy as np
 import viser
-import viser.transforms as vtf
 
 from mj_viser.geom_builders import GEOM_BUILDERS
 
-# Selection labels float this far above the selected geom (MuJoCo and Viser are both z-up here).
-_LABEL_OFFSET = np.array([0.0, 0.0, 0.05])
+_ROOT = "/mujoco"
+_UNSAFE = re.compile(r"[^A-Za-z0-9_.-]")
+
+
+def _segment(prefix: str, index: int, name: str) -> str:
+    """Path segment for one element: unique by index, readable by name.
+
+    MuJoCo names may be empty or contain "/" (namespaces), and sanitizing can make
+    two names equal, so the index alone guarantees uniqueness.
+    """
+    return f"{prefix}{index}_{_UNSAFE.sub('_', name)}" if name else f"{prefix}{index}"
+
+
+def _name(model: mujoco.MjModel, obj: mujoco.mjtObj, index: int) -> str:
+    return mujoco.mj_id2name(model, obj, index) or ""
+
+
+def body_paths(model: mujoco.MjModel) -> list[str]:
+    """Viser path of every body, nested to mirror the MuJoCo body tree."""
+    paths: list[str] = []
+    for b in range(model.nbody):
+        parent = _ROOT if b == 0 else paths[model.body_parentid[b]]
+        paths.append(f"{parent}/{_segment('b', b, _name(model, mujoco.mjtObj.mjOBJ_BODY, b))}")
+    return paths
+
+
+def _geom_alpha(model: mujoco.MjModel, geom_id: int) -> float:
+    mat_id = model.geom_matid[geom_id]
+    return float(model.mat_rgba[mat_id][3] if mat_id >= 0 else model.geom_rgba[geom_id][3])
+
+
+def build_scene_report(model: mujoco.MjModel) -> dict[str, Any]:
+    """Machine-readable account of how every MuJoCo visual element maps to the scene.
+
+    Each body, geom, and site has its Viser path. Geoms are ``rendered``,
+    ``filtered`` (with the model state that hides them), or ``unsupported``; every
+    element mj_viser does not render appears in ``unsupported`` with a reason.
+    """
+    bodies = body_paths(model)
+    report: dict[str, Any] = {"bodies": [], "geoms": [], "sites": [], "unsupported": []}
+    unsupported = report["unsupported"]
+
+    for b, path in enumerate(bodies):
+        report["bodies"].append(
+            {
+                "id": b,
+                "name": _name(model, mujoco.mjtObj.mjOBJ_BODY, b),
+                "path": path,
+                "parent": None if b == 0 else int(model.body_parentid[b]),
+                "dynamic": bool(b != 0 and model.body_weldid[b] != 0),
+            }
+        )
+
+    for g in range(model.ngeom):
+        name = _name(model, mujoco.mjtObj.mjOBJ_GEOM, g)
+        gtype = int(model.geom_type[g])
+        type_name = mujoco.mjtGeom(gtype).name.removeprefix("mjGEOM_").lower()
+        entry: dict[str, Any] = {
+            "id": g,
+            "name": name,
+            "path": f"{bodies[model.geom_bodyid[g]]}/{_segment('g', g, name)}",
+            "body": int(model.geom_bodyid[g]),
+            "type": type_name,
+            "group": int(model.geom_group[g]),
+        }
+        if gtype not in GEOM_BUILDERS:
+            entry["status"] = "unsupported"
+            unsupported.append({"kind": "geom", "id": g, "name": name, "reason": f"{type_name} geoms are not rendered"})
+        elif _geom_alpha(model, g) == 0:
+            entry["status"] = "filtered"
+            entry["reason"] = "rgba alpha is 0"
+        else:
+            entry["status"] = "rendered"
+        report["geoms"].append(entry)
+
+    for s in range(model.nsite):
+        name = _name(model, mujoco.mjtObj.mjOBJ_SITE, s)
+        report["sites"].append(
+            {
+                "id": s,
+                "name": name,
+                "path": f"{bodies[model.site_bodyid[s]]}/{_segment('s', s, name)}",
+                "body": int(model.site_bodyid[s]),
+            }
+        )
+        unsupported.append(
+            {"kind": "site", "id": s, "name": name, "reason": "site shapes are not rendered; frame only"}
+        )
+
+    for kind, count, obj, reason in (
+        ("light", model.nlight, mujoco.mjtObj.mjOBJ_LIGHT, "MuJoCo lights are not rendered; Viser default lighting"),
+        ("camera", model.ncam, mujoco.mjtObj.mjOBJ_CAMERA, "cameras are not rendered"),
+        ("tendon", model.ntendon, mujoco.mjtObj.mjOBJ_TENDON, "tendons are not rendered"),
+        ("skin", model.nskin, mujoco.mjtObj.mjOBJ_SKIN, "skins are not rendered"),
+        ("flex", model.nflex, mujoco.mjtObj.mjOBJ_FLEX, "flexes are not rendered"),
+    ):
+        for i in range(count):
+            unsupported.append({"kind": kind, "id": i, "name": _name(model, obj, i), "reason": reason})
+
+    for t in range(model.ntex):
+        if model.tex_type[t] == mujoco.mjtTexture.mjTEXTURE_SKYBOX:
+            name = _name(model, mujoco.mjtObj.mjOBJ_TEXTURE, t)
+            unsupported.append({"kind": "skybox", "id": t, "name": name, "reason": "skybox textures are not rendered"})
+
+    return report
 
 
 class SceneManager:
-    """Manages the mapping between MuJoCo geoms and Viser scene nodes.
+    """Owns the Viser nodes for one model: a frame per body, geoms and sites beneath.
 
-    Responsible for one-time scene construction, per-frame transform updates,
-    lighting, and visibility toggling.
+    Geom and site poses are static in their body's frame. Each update poses only the
+    dynamic (non-welded) body frames, relative to their parent body.
     """
 
     def __init__(
@@ -38,196 +141,96 @@ class SceneManager:
         self._lock = lock  # held by the viewer while it writes data; taken here for GUI callbacks
         self._model = model
         self._data = data
+        self.report = build_scene_report(model)
+        self._body_frames: dict[int, viser.FrameHandle] = {}
+        self._dynamic_bodies = [b["id"] for b in self.report["bodies"] if b["dynamic"]]
         self._geom_handles: dict[int, viser.SceneNodeHandle] = {}
-        self._hidden_groups: set[int] = set()  # groups toggled off by user
-        self._selected_geom: int | None = None
-        self._label_handle: viser.SceneNodeHandle | None = None
+        self._site_frames: dict[int, viser.FrameHandle] = {}
+        self._hidden_groups: set[int] = set()  # groups toggled off by the user
+        # Per-client selection: client id -> (geom id, that client's label).
+        self._selection: dict[int, tuple[int, viser.LabelHandle]] = {}
         self._on_select_callbacks: list[Callable[[int, str], None]] = []
 
     def build_scene(self) -> None:
-        """Create Viser scene nodes for all supported MuJoCo geoms."""
-        self._server.scene.set_up_direction("+z")  # match MuJoCo, so positions map 1:1
-        self._setup_lighting()
-        self._setup_ground_grid()
-
+        """Create the body frames, geoms, and site frames, and pose them from data."""
         scene = self._server.scene
-        for geom_id in range(self._model.ngeom):
-            # Skip invisible geoms (collision-only or hidden)
-            mat_id = self._model.geom_matid[geom_id]
-            if mat_id >= 0:
-                alpha = self._model.mat_rgba[mat_id][3]
-            else:
-                alpha = self._model.geom_rgba[geom_id][3]
-            if alpha == 0:
+        scene.set_up_direction("+z")  # match MuJoCo, so positions map 1:1
+
+        for body in self.report["bodies"]:
+            self._body_frames[body["id"]] = scene.add_frame(body["path"], show_axes=False)
+
+        for geom in self.report["geoms"]:
+            if geom["status"] != "rendered":
                 continue
+            g = geom["id"]
+            handle = GEOM_BUILDERS[int(self._model.geom_type[g])](scene, geom["path"], g, self._model)
+            handle.position = self._model.geom_pos[g]
+            handle.wxyz = self._model.geom_quat[g]
+            handle.on_click(lambda event, gid=g: self._handle_click(event, gid))
+            self._geom_handles[g] = handle
 
-            geom_type = self._model.geom_type[geom_id]
-            builder = GEOM_BUILDERS.get(geom_type)
-            if builder is None:
-                continue
-            handle = builder(scene, geom_id, self._model)
-            self._geom_handles[geom_id] = handle
+        for site in self.report["sites"]:
+            s = site["id"]
+            self._site_frames[s] = scene.add_frame(
+                site["path"], show_axes=False, position=self._model.site_pos[s], wxyz=self._model.site_quat[s]
+            )
 
-            # Click handler for selection (default arg captures this geom_id)
-            handle.on_click(lambda _event, gid=geom_id: self._handle_click(gid))
-
-        # Set initial transforms
-        self.update_transforms()
+        self._server.on_client_disconnect(lambda client: self._forget_client(client.client_id))
+        # Welded bodies never move relative to their parent: pose them once, here.
+        self._pose_bodies(range(1, self._model.nbody))
 
     def update_transforms(self) -> None:
-        """Update all geom positions, orientations, and visibility."""
+        """Pose the dynamic body frames from the current data."""
+        self._pose_bodies(self._dynamic_bodies)
+
+    def _pose_bodies(self, bodies: Any) -> None:
+        data, model = self._data, self._model
+        parent_inv = np.zeros(4)
+        local_quat = np.zeros(4)
+        local_pos = np.zeros(3)
         with self._server.atomic():
-            for geom_id, handle in self._geom_handles.items():
-                pos = self._data.geom_xpos[geom_id]
-
-                # Always update transforms (even for hidden geoms, so they're
-                # correct if toggled back on)
-                handle.position = pos
-                handle.wxyz = vtf.SO3.from_matrix(self._data.geom_xmat[geom_id].reshape(3, 3)).wxyz
-
-                # Visibility: hidden by group toggle or underground
-                group = int(self._model.geom_group[geom_id])
-                handle.visible = group not in self._hidden_groups and float(pos[2]) >= -0.5
-
-            # Move selection label with the selected geom
-            if self._selected_geom is not None and self._label_handle is not None:
-                pos = self._data.geom_xpos[self._selected_geom]
-                if float(pos[2]) < -0.5:
-                    self._clear_label()
-                    self._selected_geom = None
-                else:
-                    self._label_handle.position = pos + _LABEL_OFFSET
+            for b in bodies:
+                p = model.body_parentid[b]
+                mujoco.mju_negQuat(parent_inv, data.xquat[p])
+                mujoco.mju_mulQuat(local_quat, parent_inv, data.xquat[b])
+                mujoco.mju_rotVecQuat(local_pos, data.xpos[b] - data.xpos[p], parent_inv)
+                frame = self._body_frames[b]
+                frame.position = local_pos.copy()
+                frame.wxyz = local_quat.copy()
 
     def update_visibility(self, visible_groups: set[int]) -> None:
-        """Toggle geom visibility based on MuJoCo geom groups."""
+        """Show geoms whose MuJoCo group is in ``visible_groups``; hide the rest."""
         with self._lock:
-            self._apply_visibility(visible_groups)
-
-    def _apply_visibility(self, visible_groups: set[int]) -> None:
-        all_groups = {int(self._model.geom_group[gid]) for gid in self._geom_handles}
-        self._hidden_groups = all_groups - visible_groups
-        # Apply immediately (don't wait for update_transforms)
-        with self._server.atomic():
-            for geom_id, handle in self._geom_handles.items():
-                group = int(self._model.geom_group[geom_id])
-                if group in self._hidden_groups:
-                    handle.visible = False
-                else:
-                    # Only show if not underground (hidden by registry)
-                    pos = self._data.geom_xpos[geom_id]
-                    handle.visible = bool(pos[2] >= -0.5)
-
-    def _handle_click(self, geom_id: int) -> None:
-        """Handle a click on a geom — toggle selection label."""
-        with self._lock:
-            self._toggle_selection(geom_id)
-
-    def _toggle_selection(self, geom_id: int) -> None:
-        if self._selected_geom == geom_id:
-            # Click same geom again — deselect
-            self._clear_label()
-            self._selected_geom = None
-            return
-
-        self._selected_geom = geom_id
-
-        # Resolve body name
-        body_id = self._model.geom_bodyid[geom_id]
-        body_name = (
-            mujoco.mj_id2name(
-                self._model,
-                mujoco.mjtObj.mjOBJ_BODY,
-                body_id,
-            )
-            or f"body_{body_id}"
-        )
-
-        # Show label at geom position
-        pos = self._data.geom_xpos[geom_id]
-        self._show_label(body_name, pos)
-
-        # Notify callbacks
-        for cb in self._on_select_callbacks:
-            cb(geom_id, body_name)
-
-    def _show_label(self, text: str, position: object) -> None:
-        """Show a 3D label at the given position."""
-        self._clear_label()
-        self._label_handle = self._server.scene.add_label(
-            "/mujoco/selection_label",
-            text=text,
-            wxyz=(1, 0, 0, 0),
-            position=np.asarray(position) + _LABEL_OFFSET,
-        )
-
-    def _clear_label(self) -> None:
-        """Remove the selection label."""
-        if self._label_handle is not None:
-            self._label_handle.remove()
-            self._label_handle = None
-
-    def clear_selection(self) -> None:
-        """Clear the current selection and remove the label."""
-        self._clear_label()
-        self._selected_geom = None
+            all_groups = {int(self._model.geom_group[g]) for g in self._geom_handles}
+            self._hidden_groups = all_groups - visible_groups
+            with self._server.atomic():
+                for g, handle in self._geom_handles.items():
+                    handle.visible = int(self._model.geom_group[g]) not in self._hidden_groups
 
     def on_select(self, callback: Callable[[int, str], None]) -> None:
         """Register a callback for geom selection: callback(geom_id, body_name)."""
         self._on_select_callbacks.append(callback)
 
-    def _setup_lighting(self) -> None:
-        """Create a clean three-point lighting setup."""
-        scene = self._server.scene
+    def _handle_click(self, event: Any, geom_id: int) -> None:
+        """Toggle the clicking client's selection; other clients are unaffected."""
+        with self._lock:
+            previous = self._selection.pop(event.client_id, None)
+            if previous is not None:
+                previous[1].remove()
+                if previous[0] == geom_id:
+                    return  # clicking the selected geom again deselects it
 
-        # Key light: warm, from upper-right-front
-        scene.add_light_directional(
-            "/lights/key",
-            color=(255, 250, 240),
-            intensity=1.0,
-            wxyz=_euler_to_wxyz(-math.pi / 4, math.pi / 4, 0),
-        )
+            body_id = int(self._model.geom_bodyid[geom_id])
+            body_name = _name(self._model, mujoco.mjtObj.mjOBJ_BODY, body_id) or f"body_{body_id}"
+            # A child of the geom node, so it follows the geom without per-update work.
+            label = event.client.scene.add_label(
+                f"{self.report['geoms'][geom_id]['path']}/selection_label", text=body_name
+            )
+            self._selection[event.client_id] = (geom_id, label)
 
-        # Fill light: cool, from upper-left
-        scene.add_light_directional(
-            "/lights/fill",
-            color=(210, 220, 240),
-            intensity=0.4,
-            wxyz=_euler_to_wxyz(-math.pi / 6, -math.pi / 3, 0),
-        )
+        for cb in self._on_select_callbacks:
+            cb(geom_id, body_name)
 
-        # Rim light: from behind, subtle
-        scene.add_light_directional(
-            "/lights/rim",
-            color=(240, 240, 255),
-            intensity=0.3,
-            wxyz=_euler_to_wxyz(-math.pi / 5, math.pi, 0),
-        )
-
-    def _setup_ground_grid(self) -> None:
-        """Add a ground-plane grid at z=0."""
-        self._server.scene.add_grid(
-            "/ground",
-            width=20.0,
-            height=20.0,
-            plane="xy",
-            cell_size=0.5,
-            cell_color=(180, 180, 180),
-            section_color=(120, 120, 120),
-            section_size=1.0,
-        )
-
-
-def _euler_to_wxyz(pitch: float, yaw: float, roll: float) -> tuple[float, float, float, float]:
-    """Convert Euler angles (XYZ intrinsic) to (w, x, y, z) quaternion.
-
-    Used only for configuring light directions.
-    """
-    cx, sx = math.cos(pitch / 2), math.sin(pitch / 2)
-    cy, sy = math.cos(yaw / 2), math.sin(yaw / 2)
-    cz, sz = math.cos(roll / 2), math.sin(roll / 2)
-
-    w = cx * cy * cz + sx * sy * sz
-    x = sx * cy * cz - cx * sy * sz
-    y = cx * sy * cz + sx * cy * sz
-    z = cx * cy * sz - sx * sy * cz
-    return (w, x, y, z)
+    def _forget_client(self, client_id: int) -> None:
+        with self._lock:
+            self._selection.pop(client_id, None)

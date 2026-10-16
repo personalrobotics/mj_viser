@@ -38,34 +38,30 @@ def _resolve_opacity(model: mujoco.MjModel, geom_id: int) -> float | None:
     return float(alpha) if alpha < 1.0 else None
 
 
-def _geom_name(geom_id: int) -> str:
-    return f"/mujoco/geoms/geom_{geom_id}"
-
-
-def build_box(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) -> viser.BoxHandle:
+def build_box(scene: viser.SceneApi, name: str, geom_id: int, model: mujoco.MjModel) -> viser.BoxHandle:
     size = model.geom_size[geom_id]
     return scene.add_box(
-        _geom_name(geom_id),
+        name,
         dimensions=(float(size[0] * 2), float(size[1] * 2), float(size[2] * 2)),
         color=_resolve_color(model, geom_id),
         opacity=_resolve_opacity(model, geom_id),
     )
 
 
-def build_sphere(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) -> viser.IcosphereHandle:
+def build_sphere(scene: viser.SceneApi, name: str, geom_id: int, model: mujoco.MjModel) -> viser.IcosphereHandle:
     radius = float(model.geom_size[geom_id][0])
     return scene.add_icosphere(
-        _geom_name(geom_id),
+        name,
         radius=radius,
         color=_resolve_color(model, geom_id),
         opacity=_resolve_opacity(model, geom_id),
     )
 
 
-def build_cylinder(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) -> viser.CylinderHandle:
+def build_cylinder(scene: viser.SceneApi, name: str, geom_id: int, model: mujoco.MjModel) -> viser.CylinderHandle:
     size = model.geom_size[geom_id]
     return scene.add_cylinder(
-        _geom_name(geom_id),
+        name,
         radius=float(size[0]),
         height=float(size[1] * 2),
         color=_resolve_color(model, geom_id),
@@ -73,13 +69,13 @@ def build_cylinder(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) -
     )
 
 
-def build_capsule(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) -> viser.MeshHandle:
+def build_capsule(scene: viser.SceneApi, name: str, geom_id: int, model: mujoco.MjModel) -> viser.MeshHandle:
     size = model.geom_size[geom_id]
     radius = float(size[0])
     half_height = float(size[1])
     verts, faces = make_capsule_mesh(radius, half_height)
     return scene.add_mesh_simple(
-        _geom_name(geom_id),
+        name,
         vertices=verts,
         faces=faces,
         color=_resolve_color(model, geom_id),
@@ -88,11 +84,11 @@ def build_capsule(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) ->
     )
 
 
-def build_ellipsoid(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) -> viser.MeshHandle:
+def build_ellipsoid(scene: viser.SceneApi, name: str, geom_id: int, model: mujoco.MjModel) -> viser.MeshHandle:
     semi_axes = model.geom_size[geom_id]
     verts, faces = make_ellipsoid_mesh(semi_axes)
     return scene.add_mesh_simple(
-        _geom_name(geom_id),
+        name,
         vertices=verts,
         faces=faces,
         color=_resolve_color(model, geom_id),
@@ -101,7 +97,9 @@ def build_ellipsoid(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) 
     )
 
 
-def build_mesh(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) -> viser.MeshHandle | viser.GlbHandle:
+def build_mesh(
+    scene: viser.SceneApi, name: str, geom_id: int, model: mujoco.MjModel
+) -> viser.MeshHandle | viser.GlbHandle:
     mesh_id = model.geom_dataid[geom_id]
     verts, faces, texcoords, texture_rgb = extract_mujoco_mesh_textured(
         model,
@@ -124,13 +122,13 @@ def build_mesh(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) -> vi
         visual = trimesh.visual.TextureVisuals(uv=texcoords, material=material)  # type: ignore[no-untyped-call]
         mesh = trimesh.Trimesh(vertices=verts, faces=faces, visual=visual)
         return scene.add_mesh_trimesh(
-            _geom_name(geom_id),
+            name,
             mesh=mesh,
         )
 
     # Fallback: solid color
     return scene.add_mesh_simple(
-        _geom_name(geom_id),
+        name,
         vertices=verts,
         faces=faces,
         color=_resolve_color(model, geom_id),
@@ -142,7 +140,7 @@ def build_mesh(scene: viser.SceneApi, geom_id: int, model: mujoco.MjModel) -> vi
 
 # Dispatch table: MuJoCo geom type → builder function.
 # Keyed by int: newer mujoco enums no longer compare equal to the numpy ints in model.geom_type.
-GEOM_BUILDERS: dict[int, Callable[[viser.SceneApi, int, mujoco.MjModel], Any]] = {
+GEOM_BUILDERS: dict[int, Callable[[viser.SceneApi, str, int, mujoco.MjModel], Any]] = {
     int(mujoco.mjtGeom.mjGEOM_BOX): build_box,
     int(mujoco.mjtGeom.mjGEOM_SPHERE): build_sphere,
     int(mujoco.mjtGeom.mjGEOM_CYLINDER): build_cylinder,
