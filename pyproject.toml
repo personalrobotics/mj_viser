@@ -9,11 +9,12 @@ authors = [
 maintainers = [
     {name = "Siddhartha Srinivasa", email = "siddhartha.srinivasa@gmail.com"},
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.13"
 readme = "README.md"
 dependencies = [
     "mujoco>=3.5",
     "numpy>=1.24",
+    "pillow>=8.3.2",
     "trimesh>=3.21.7",
     "viser>=1.1.1,<1.2",
 ]
