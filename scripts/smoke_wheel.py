@@ -38,7 +38,14 @@ faulthandler.dump_traceback_later(60, exit=True)
 
 MJCF = """
 <mujoco>
+  <asset>
+    <texture name="checker" type="2d" builtin="checker" width="8" height="8" rgb1="1 1 1" rgb2="0.2 0.2 0.2"/>
+    <material name="checkered" texture="checker"/>
+    <mesh name="tet" vertex="0 0 0  0.2 0 0  0 0.2 0  0 0 0.2" texcoord="0 0  1 0  0 1  1 1"
+          face="0 2 1  0 1 3  0 3 2  1 2 3"/>
+  </asset>
   <worldbody>
+    <geom name="tet" type="mesh" mesh="tet" material="checkered" pos="-0.5 0 0"/>
     <body name="arm" pos="0 0 0.5">
       <joint name="hinge" type="hinge" axis="0 1 0"/>
       <geom name="link" type="capsule" size="0.05" fromto="0 0 0 0.3 0 0" rgba="0.8 0.3 0.3 1"/>
@@ -165,6 +172,12 @@ def main(out_dir: str, env_label: str) -> None:
         raise SystemExit(f"expected loopback URL with a real port, got {url}")
     report["default_url_host"] = host
     report["ephemeral_port_resolved"] = int(port) != 0
+
+    # The textured mesh must take the trimesh + Pillow texture path (a GLB node), not the solid-color fallback.
+    tet = viewer._scene_mgr._geom_handles[model.geom("tet").id]  # type: ignore[union-attr]
+    if type(tet).__name__ != "GlbHandle":
+        raise SystemExit(f"textured mesh rendered as {type(tet).__name__}, not a textured GLB")
+    report["textured_mesh_node"] = type(tet).__name__
 
     serializer = viewer.server.get_scene_serializer()
     states_report = {}

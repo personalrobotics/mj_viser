@@ -124,6 +124,7 @@ viewer = MujocoViewer(model, show_visibility=False)
 | Viser | `>=1.1.1,<1.2` |
 | NumPy | `>=1.24` |
 | trimesh | `>=3.21.7` |
+| Pillow | `>=8.3.2` |
 
 CI runs the same end-to-end check from a clean wheel install against the locked versions (`uv.lock`) and the newest allowed releases on every supported Python, and against every declared minimum on Python 3.10.
 
