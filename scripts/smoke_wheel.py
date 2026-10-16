@@ -7,7 +7,7 @@ Imports every mj_viser module, then exercises the viewer lifecycle: renders two
 deterministic caller-owned states and records them to a .viser file, proves the
 source states are unchanged, and checks loopback default, port 0, repeated
 open/close, and startup/update failures. Writes a JSON report and the recording
-into the directory given as argv[1].
+into the directory given as argv[1]; argv[2] names the environment in the report.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from __future__ import annotations
 import faulthandler
 import hashlib
 import importlib
+import importlib.metadata
 import importlib.util
 import inspect
 import io
@@ -84,6 +85,28 @@ def expected_positions(model: mujoco.MjModel, qpos: list[float]) -> dict[int, li
     return {gid: [round(float(v), 9) for v in ref.geom_xpos[gid]] for gid in range(model.ngeom)}
 
 
+def rendered_orientations(viewer: mj_viser.MujocoViewer) -> dict[int, np.ndarray]:
+    handles = viewer._scene_mgr._geom_handles  # type: ignore[union-attr]
+    return {gid: np.asarray(h.wxyz, dtype=float) for gid, h in handles.items()}
+
+
+def expected_orientations(model: mujoco.MjModel, qpos: list[float]) -> dict[int, np.ndarray]:
+    # Independent reference: MuJoCo's own matrix-to-quaternion on fresh kinematics.
+    ref = mujoco.MjData(model)
+    ref.qpos[:] = qpos
+    mujoco.mj_kinematics(model, ref)
+    quats = {}
+    for gid in range(model.ngeom):
+        q = np.zeros(4)
+        mujoco.mju_mat2Quat(q, ref.geom_xmat[gid])
+        quats[gid] = q
+    return quats
+
+
+def same_rotation(a: np.ndarray, b: np.ndarray) -> bool:
+    return bool(np.allclose(a, b, atol=1e-6) or np.allclose(a, -b, atol=1e-6))
+
+
 def expect_raises(exc: type[BaseException], fn) -> str:  # type: ignore[no-untyped-def]
     try:
         fn()
@@ -92,7 +115,7 @@ def expect_raises(exc: type[BaseException], fn) -> str:  # type: ignore[no-untyp
     raise SystemExit(f"expected {exc.__name__} from {fn}")
 
 
-def main(out_dir: str) -> None:
+def main(out_dir: str, env_label: str) -> None:
     modules = sorted(m.name for m in pkgutil.walk_packages(mj_viser.__path__, "mj_viser."))
     for name in modules:
         importlib.import_module(name)
@@ -101,13 +124,24 @@ def main(out_dir: str) -> None:
         raise SystemExit(f"mj_viser imported robot-control modules: {forbidden}")
 
     # The viewer code (not its docstrings) must contain no stepping, reset, or worker thread of its own.
+    # Nor may it reach into Viser's private modules or transport (viser._x, ._websock_*).
     names = set()
+    private_viser = []
     for m in modules:
         src = io.StringIO(inspect.getsource(sys.modules[m]))
-        names |= {t.string for t in tokenize.generate_tokens(src.readline) if t.type == tokenize.NAME}
+        toks = [t.string for t in tokenize.generate_tokens(src.readline) if t.type in (tokenize.NAME, tokenize.OP)]
+        names |= set(toks)
+        private_viser += [
+            f"{m}: viser.{c}"
+            for a, b, c in zip(toks, toks[1:], toks[2:])
+            if a == "viser" and b == "." and c.startswith("_")
+        ]
+        private_viser += [f"{m}: {t}" for t in toks if t.startswith("_websock")]
     banned = sorted(names & {"mj_step", "mj_resetData", "Thread"})
     if banned:
         raise SystemExit(f"viewer lifecycle contains {banned}")
+    if private_viser:
+        raise SystemExit(f"private Viser access: {private_viser}")
     if any(hasattr(mj_viser.MujocoViewer, a) for a in ("launch", "launch_passive", "sync", "is_running")):
         raise SystemExit("legacy launch/sync API still present")
 
@@ -146,6 +180,10 @@ def main(out_dir: str) -> None:
             np.allclose(rendered[g], expected[g], atol=1e-6) for g in rendered
         ):
             raise SystemExit(f"state {name}: rendered {rendered} != expected {expected}")
+        rendered_q = rendered_orientations(viewer)
+        expected_q = expected_orientations(model, STATES[name])
+        if not all(same_rotation(rendered_q[g], expected_q[g]) for g in rendered_q):
+            raise SystemExit(f"state {name}: rendered orientations {rendered_q} != expected {expected_q}")
         if viewer.data is d:
             raise SystemExit("viewer retained the caller's MjData")
         states_report[name] = {
@@ -229,6 +267,8 @@ def main(out_dir: str) -> None:
     report["startup_unbindable_host"] = expect_raises(OSError, mj_viser.MujocoViewer(model, host="192.0.2.1").open)
 
     report.update(
+        environment=env_label,
+        installed={d.metadata["Name"].lower(): d.version for d in importlib.metadata.distributions()},
         python=sys.version.split()[0],
         mj_viser=version("mj-viser"),
         mujoco=version("mujoco"),
@@ -243,4 +283,4 @@ def main(out_dir: str) -> None:
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    main(sys.argv[1], sys.argv[2])
