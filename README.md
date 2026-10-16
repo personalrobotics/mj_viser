@@ -16,11 +16,13 @@ mj_viser renders MuJoCo state; it does not step simulations or command robots. Y
 - **Extensible panels** — add custom GUI panels for sensors, cameras, controls, etc.
 - **Sensor plots** — built-in `SensorPanel` with real-time scrolling time series (uPlot)
 - **HUD overlay** — fixed-positioned status text over the 3D viewport (shown as text; markup is escaped)
-- **Click-to-select** — click any geom to show its body name; label follows the object
+- **Body-frame scene** — one Viser frame per MuJoCo body, with geoms and sites beneath it at stable, unique paths
+- **Click-to-select** — click any geom to show its body name, to that browser only; the label follows the object
 - **Visibility groups** — toggle MuJoCo geom groups on/off
 - **Loopback by default** — binds `127.0.0.1`; serving other machines is an explicit `host=` choice
 - **Multi-client** — multiple browser tabs viewing the same simulation
-- **Beautiful rendering** — three-point lighting, proper materials, transparency support
+- **Scene report** — `viewer.scene_report()` lists every body, geom, and site path and every element not rendered, with the reason
+- **Materials** — colors, transparency, and textured meshes, under Viser's default lighting
 
 ## Installation
 
@@ -85,6 +87,18 @@ viewer.set_hud("status", "L: [13N] can_0 | R: — | physics", "bottom-left")
 # Labels appear automatically on click. Register a callback for custom behavior:
 viewer.on_select(lambda geom_id, body_name: print(f"Selected: {body_name}"))
 ```
+
+Each browser has its own selection; one viewer's click does not change another's.
+
+### Scene report
+
+```python
+report = viewer.scene_report()  # plain JSON-ready data; works before open()
+report["bodies"][1]["path"]     # e.g. "/mujoco/b0_world/b1_trunk"
+report["unsupported"]           # e.g. [{"kind": "geom", "name": "floor", "reason": "plane geoms are not rendered"}, ...]
+```
+
+Paths are built from MuJoCo ids plus sanitized names (`b3_trunk`, `g7`, `s2_imu`), so they are stable for a model and unique even for unnamed elements or names that differ only in punctuation.
 
 ### Custom panels
 

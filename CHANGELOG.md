@@ -24,6 +24,16 @@
   matching ssrobot's minimum; #29). The lock pins mujoco 3.14.0, the version ssrobot uses.
 - `label` is passed to Viser's public `label` and appears as the GUI panel heading.
   It no longer sets the browser tab title, which needed a private Viser message (#27).
+- The scene mirrors MuJoCo's body tree (#31): one Viser frame per body at a nested path
+  such as `/mujoco/b0_world/b1_trunk/g3`, with geoms and sites as children at their static
+  local poses. Each update poses only the non-welded body frames, relative to their parent.
+  Node paths change from `/mujoco/geoms/geom_<id>`.
+- Selection is per browser connection (#31): each client gets its own label, and one
+  client's click no longer replaces another's.
+- `viewer.scene_report()` (#31) returns every body, geom, and site path, geom status
+  (`rendered`, `filtered`, `unsupported`), and every unrendered element (planes and other
+  unsupported geom types, site shapes, lights, cameras, tendons, skins, flexes, skyboxes)
+  with a reason.
 - `set_hud()` content and `SensorPanel` titles, channel labels, and colors are treated as
   text: markup is escaped instead of rendered (#29).
 
@@ -37,6 +47,8 @@
 - `launch()`, `launch_passive()`, `sync()`, `is_running()`, the built-in
   simulation thread, the Play/Pause/Step/Reset/Speed panel, and the `show_gui`
   and `show_sim_controls` arguments (#30).
+- Geoms are no longer hidden below z = -0.5, and the default ground grid and three
+  directional lights are gone; scenes use Viser's default lighting (#31).
 - `mj_viser.transforms` (`xmat_to_wxyz`, `mj_pos_to_viser`, `configure_scene`):
   use `viser.transforms.SO3.from_matrix(xmat.reshape(3, 3)).wxyz` (#27).
 - The unused `plotly` dependency (#27).
