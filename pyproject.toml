@@ -12,7 +12,7 @@ maintainers = [
 requires-python = ">=3.10"
 readme = "README.md"
 dependencies = [
-    "mujoco>=3.0",
+    "mujoco>=3.1",
     "viser>=1.1.1",
     "numpy",
     "plotly>=5.0",

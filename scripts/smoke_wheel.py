@@ -24,6 +24,7 @@ import pkgutil
 import socket
 import sys
 import tokenize
+import urllib.parse
 from importlib.metadata import version
 
 import mujoco
@@ -165,12 +166,42 @@ def main(out_dir: str) -> None:
     report["recording"] = {"file": "two_states.viser", "sha256": hashlib.sha256(recording).hexdigest()}
 
     # --- Update failures return to the caller ---------------------------------------------
-    other_xml = "<mujoco><worldbody><body><freejoint/><geom size='.1'/></body></worldbody></mujoco>"
-    other = mujoco.MjModel.from_xml_string(other_xml)
+    # Adversarial models: every array the old size check compared is the same length.
+    # "swapped" is the same layout with hinge and slide exchanged (0.5 m would render as 0.5 rad);
+    # "camera" adds a camera, changing MjData's internal layout so mj_copyData would raise FatalError.
+    adversarial = {
+        "swapped": MJCF.replace('type="hinge"', 'type="TMP"')
+        .replace('type="slide"', 'type="hinge"')
+        .replace('type="TMP"', 'type="slide"'),
+        "camera": MJCF.replace("<worldbody>", '<worldbody><camera name="cam" pos="0 0 2"/>'),
+    }
     report["update_while_closed"] = expect_raises(RuntimeError, lambda: viewer.update(sources["A"]))
     with mj_viser.MujocoViewer(model, port=0) as v:
-        report["update_wrong_model"] = expect_raises(ValueError, lambda: v.update(mujoco.MjData(other)))
+        v.update(sources["A"])
+        good = rendered_positions(v)
+        for name, xml in adversarial.items():
+            m = mujoco.MjModel.from_xml_string(xml)
+            if (m.nq, m.nv, m.nbody, m.ngeom, m.nsensordata) != (model.nq, model.nv, model.nbody, model.ngeom, 0):
+                raise SystemExit(f"adversarial model {name} is not size-identical")
+            d = mujoco.MjData(m)
+            d.qpos[:] = [0.5, 0.5]
+            report[f"update_{name}_model"] = expect_raises(ValueError, lambda: v.update(d))
+            if rendered_positions(v) != good:
+                raise SystemExit(f"rejected {name} update changed the rendered scene")
         report["open_twice"] = expect_raises(RuntimeError, v.open)
+
+    # --- IPv6 literal hosts produce a bracketed URL ---------------------------------------
+    try:
+        with socket.socket(socket.AF_INET6) as s6:
+            s6.bind(("::1", 0))
+    except OSError:
+        report["ipv6_url"] = "skipped: ::1 not bindable on this host"
+    else:
+        with mj_viser.MujocoViewer(model, host="::1", port=0) as v:
+            parsed = urllib.parse.urlsplit(v.url)
+            if parsed.hostname != "::1" or not parsed.port:
+                raise SystemExit(f"invalid IPv6 URL {v.url}")
+            report["ipv6_url"] = v.url.replace(str(parsed.port), "<port>")
 
     # --- Repeated open/close on one fixed port releases it each time ----------------------
     fixed = free_port()

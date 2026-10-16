@@ -18,19 +18,6 @@ from mj_viser.gui import GuiManager
 from mj_viser.panels import PanelBase
 from mj_viser.scene import SceneManager
 
-# MjData arrays whose lengths must match the viewer's model, with the MjModel size they follow.
-_SIZED_FIELDS = {
-    "qpos": "nq",
-    "qvel": "nv",
-    "ctrl": "nu",
-    "act": "na",
-    "xpos": "nbody",
-    "geom_xpos": "ngeom",
-    "site_xpos": "nsite",
-    "mocap_pos": "nmocap",
-    "sensordata": "nsensordata",
-}
-
 
 class MujocoViewer:
     """Web-based MuJoCo viewer using Viser.
@@ -117,7 +104,10 @@ class MujocoViewer:
     def url(self) -> str:
         """The URL the server is actually bound to. Only valid while open."""
         server = self.server
-        return f"http://{server.get_host()}:{server.get_port()}"
+        host = server.get_host()
+        if ":" in host:  # IPv6 literal
+            host = f"[{host}]"
+        return f"http://{host}:{server.get_port()}"
 
     def set_hud(
         self,
@@ -220,13 +210,14 @@ class MujocoViewer:
 
         Raises:
             RuntimeError: If the viewer is not open.
-            ValueError: If ``data`` belongs to a model with different sizes.
+            ValueError: If ``data`` was not created from this viewer's ``MjModel`` object.
         """
         if self._scene_mgr is None:
             raise RuntimeError("MujocoViewer is not open; call open() first")
-        mismatched = [f for f, n in _SIZED_FIELDS.items() if len(getattr(data, f)) != getattr(self._model, n)]
-        if mismatched:
-            raise ValueError(f"data does not match the viewer's model (differs in {', '.join(mismatched)})")
+        # Size checks are not enough: same-sized models can differ structurally
+        # (a slide read as a hinge), and differing layouts crash mj_copyData.
+        if data.model is not self._model:
+            raise ValueError("data was not created from this viewer's MjModel")
 
         with self._lock:
             mujoco.mj_copyData(self._data, self._model, data)

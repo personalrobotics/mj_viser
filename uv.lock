@@ -519,7 +519,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mujoco", specifier = ">=3.0" },
+    { name = "mujoco", specifier = ">=3.1" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "numpy" },
     { name = "plotly", specifier = ">=5.0" },

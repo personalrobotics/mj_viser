@@ -12,11 +12,13 @@
 - Defaults to `host="127.0.0.1"`. Pass `host="0.0.0.0"` to serve other machines.
 - `port=0` binds a free port; `viewer.url` reports the bound address.
 - `open()` raises `OSError` when the address cannot be bound, instead of hanging
-  or silently moving to another port. `update()` raises `ValueError` for data from
-  a model with different sizes and `RuntimeError` when the viewer is not open.
+  or silently moving to another port. `update()` raises `ValueError` unless
+  `data.model is viewer.model` (data made from a reloaded or copied model is
+  rejected) and `RuntimeError` when the viewer is not open.
+- `viewer.url` brackets IPv6 literals (`http://[::1]:8080`).
 - `close()` is idempotent and releases the port; a closed viewer can be reopened.
   `server`, `url`, and `set_hud` are valid only while open.
-- Requires `viser>=1.1.1`.
+- Requires `viser>=1.1.1` and `mujoco>=3.1` (for `MjData.model`).
 
 ### Fixed
 
