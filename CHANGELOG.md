@@ -19,10 +19,13 @@
 - `close()` is idempotent and releases the port; a closed viewer can be reopened.
   `server`, `url`, and `set_hud` are valid only while open.
 - Requires `mujoco>=3.5` (`mj_copyData` in the Python bindings), `viser>=1.1.1,<1.2`,
-  `numpy>=1.24`, `trimesh>=3.21.7`, and `pillow>=8.3.2` (trimesh and Pillow are imported
-  directly and are now declared), on Python 3.10–3.14 (`requires-python = ">=3.10,<3.15"`).
+  `numpy>=1.24`, `trimesh>=3.21.7`, and `pillow>=9.2` (trimesh and Pillow are imported
+  directly and are now declared), on Python 3.11–3.14 (`requires-python = ">=3.11,<3.15"`,
+  matching ssrobot's minimum; #29). The lock pins mujoco 3.14.0, the version ssrobot uses.
 - `label` is passed to Viser's public `label` and appears as the GUI panel heading.
   It no longer sets the browser tab title, which needed a private Viser message (#27).
+- `set_hud()` content and `SensorPanel` titles, channel labels, and colors are treated as
+  text: markup is escaped instead of rendered (#29).
 
 ### Fixed
 

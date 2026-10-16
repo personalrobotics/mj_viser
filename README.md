@@ -15,7 +15,7 @@ mj_viser renders MuJoCo state; it does not step simulations or command robots. Y
 - **Caller-driven lifecycle** — `open()`, `update(data)`, `close()`; the viewer copies state and never mutates yours
 - **Extensible panels** — add custom GUI panels for sensors, cameras, controls, etc.
 - **Sensor plots** — built-in `SensorPanel` with real-time scrolling time series (uPlot)
-- **HUD overlay** — fixed-positioned status text over the 3D viewport
+- **HUD overlay** — fixed-positioned status text over the 3D viewport (shown as text; markup is escaped)
 - **Click-to-select** — click any geom to show its body name; label follows the object
 - **Visibility groups** — toggle MuJoCo geom groups on/off
 - **Loopback by default** — binds `127.0.0.1`; serving other machines is an explicit `host=` choice
@@ -119,14 +119,14 @@ viewer = MujocoViewer(model, show_visibility=False)
 
 | | Supported |
 | --- | --- |
-| Python | 3.10–3.14 (3.15 awaits wheels for Viser's `zstandard` dependency) |
-| MuJoCo | `>=3.5` (first release with `mj_copyData` in the Python bindings) |
+| Python | 3.11–3.14 (3.15 awaits wheels for Viser's `zstandard` dependency) |
+| MuJoCo | `>=3.5` (first release with `mj_copyData` in the Python bindings); locked to 3.14.0, the version ssrobot pins |
 | Viser | `>=1.1.1,<1.2` |
 | NumPy | `>=1.24` |
 | trimesh | `>=3.21.7` |
-| Pillow | `>=8.3.2` |
+| Pillow | `>=9.2` |
 
-CI runs the same end-to-end check from a clean wheel install against the locked versions (`uv.lock`) and the newest allowed releases on every supported Python, and against every declared minimum on Python 3.10.
+CI runs the same end-to-end check from a clean wheel install against the locked versions (`uv.lock`) and the newest allowed releases on every supported Python, and against every declared minimum on Python 3.11. It tests the exact wheel it builds and uploads, together with each run's report and recording.
 
 ## Examples
 
@@ -146,11 +146,19 @@ uv run python examples/custom_panel.py mujoco_menagerie/unitree_g1/scene.xml
 ```bash
 git clone https://github.com/personalrobotics/mj_viser.git
 cd mj_viser
-uv sync --all-extras
+uv sync --locked --all-extras
 uv run pytest
-uv run ruff check src/ tests/
-scripts/smoke_wheel.sh dist/smoke lowest locked latest   # end-to-end check from a clean wheel install, per environment
+uv run ruff check . && uv run ruff format --check .
+uv run mypy src
 ```
+
+The end-to-end check builds the wheel, installs it into a clean virtualenv, and exercises the installed package:
+
+```bash
+UV_PYTHON=3.12 scripts/smoke_wheel.sh dist/smoke locked
+```
+
+It writes `dist/smoke/locked/smoke_report.json` (results, input-state hashes, installed versions, wheel sha256) and `dist/smoke/locked/two_states.viser`, a recording of two rendered states; open it in the Viser client to replay. Add `lowest` and `latest` to run the declared-minimum and newest-release environments too.
 
 ## License
 
