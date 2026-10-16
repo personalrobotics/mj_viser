@@ -119,7 +119,7 @@ viewer = MujocoViewer(model, show_visibility=False)
 
 | | Supported |
 | --- | --- |
-| Python | 3.10–3.12 |
+| Python | 3.10–3.14 (3.15 awaits wheels for Viser's `zstandard` dependency) |
 | MuJoCo | `>=3.5` (first release with `mj_copyData` in the Python bindings) |
 | Viser | `>=1.1.1,<1.2` |
 | NumPy | `>=1.24` |
