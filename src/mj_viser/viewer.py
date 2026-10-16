@@ -11,13 +11,14 @@ import sys
 import threading
 import webbrowser
 from collections.abc import Callable
+from typing import Any
 
 import mujoco
 import viser
 
 from mj_viser.gui import GuiManager
 from mj_viser.panels import PanelBase
-from mj_viser.scene import SceneManager
+from mj_viser.scene import SceneManager, build_scene_report
 
 
 class MujocoViewer:
@@ -161,6 +162,17 @@ class MujocoViewer:
         self._select_callbacks.append(callback)
         if self._scene_mgr is not None:
             self._scene_mgr.on_select(callback)
+
+    def scene_report(self) -> dict[str, Any]:
+        """How every MuJoCo visual element maps to the scene, as plain JSON-ready data.
+
+        ``bodies``, ``geoms``, and ``sites`` give each element's id, name, and Viser
+        path (stable for a given model, unique even for unnamed or repeated names).
+        Geoms carry a ``status`` of ``rendered``, ``filtered``, or ``unsupported``.
+        ``unsupported`` lists every element that is not rendered, with a reason.
+        Depends only on the model, so it is available before :meth:`open`.
+        """
+        return build_scene_report(self._model)
 
     def add_panel(self, panel: PanelBase) -> None:
         """Register a custom GUI panel. Panels added while open are set up immediately."""
