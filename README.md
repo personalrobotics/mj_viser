@@ -2,6 +2,8 @@
 
 Web-based MuJoCo viewer built on [Viser](https://github.com/nerfstudio-project/viser). Interactive simulation in the browser with extensible GUI panels for robotics applications.
 
+mj_viser renders MuJoCo state; it does not command robots. Teleoperation, task controls, arm ownership, safety policy, and recording belong to the application (for example Geodude or ADA), which decides what to execute.
+
 <p align="center">
   <img src="assets/g1_viewer.png" alt="Unitree G1 humanoid in mj_viser viewer" width="800"/>
 </p>
@@ -17,7 +19,6 @@ Web-based MuJoCo viewer built on [Viser](https://github.com/nerfstudio-project/v
 - **Click-to-select** — click any geom to show its body name; label follows the object
 - **Visibility groups** — toggle MuJoCo geom groups on/off
 - **Granular GUI control** — show/hide simulation controls and visibility panel independently
-- **Teleop panel** — SE(3) gizmo + ghost hand for interactive arm control with collision feedback
 - **Multi-client** — multiple browser tabs viewing the same simulation
 - **Beautiful rendering** — three-point lighting, proper materials, transparency support
 
@@ -115,24 +116,6 @@ viewer.add_panel(MyPanel())
 viewer.launch()
 ```
 
-### Teleop panel
-
-```python
-from mj_viser import MujocoViewer, TeleopPanel
-from mj_manipulator.teleop import TeleopController
-
-controller = TeleopController(arm, ctx)
-panel = TeleopPanel(
-    arm=arm, controller=controller,
-    model=model, data=data,
-    gripper_body_prefix="ur5e/gripper/",
-    arm_label="Right Arm",
-)
-viewer.add_panel(panel)
-viewer.launch()
-# Teleop tab: activate gizmo, drag to control arm, toggle gripper, record demos
-```
-
 ### Granular GUI control
 
 ```python
@@ -164,6 +147,7 @@ cd mj_viser
 uv sync --all-extras
 uv run pytest
 uv run ruff check src/ tests/
+scripts/smoke_wheel.sh   # build the wheel, install it in a clean venv, open the viewer; writes dist/smoke/smoke_report.json
 ```
 
 ## License

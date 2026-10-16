@@ -44,6 +44,9 @@ jobs:
             echo "No tests/ directory; skipping pytest."
           fi
 
+      - name: Clean-wheel smoke test
+        run: scripts/smoke_wheel.sh
+
   notify-robot-code:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
