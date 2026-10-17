@@ -83,6 +83,13 @@ MJCF = """
     <body name="arm" pos="0 0 0.5">
       <joint name="hinge" type="hinge" axis="0 1 0"/>
       <geom name="link" type="capsule" size="0.05" fromto="0 0 0 0.3 0 0" rgba="0.8 0.3 0.3 1"/>
+      <!-- One site per shape; one unnamed, one transparent (filtered), one in group 4 (hidden by default). -->
+      <site name="mark_capsule" type="capsule" size="0.01 0.03" pos="0.1 0 0.06" rgba="1 0.5 0 1"/>
+      <site name="mark_cylinder" type="cylinder" size="0.01 0.02" pos="0.15 0 0.06" euler="0.4 0 0"/>
+      <site name="mark_box" type="box" size="0.01 0.015 0.02" pos="0.2 0 0.06" material="tinted"/>
+      <site name="mark_ellipsoid" type="ellipsoid" size="0.01 0.015 0.02" pos="0.25 0 0.06" group="4"/>
+      <site type="sphere" size="0.01" pos="0.05 0 0.06"/>
+      <site name="ghost" size="0.01" pos="0.3 0 0.06" rgba="1 0 0 0"/>
       <body name="slider" pos="0.3 0 0">
         <joint name="slide" type="slide" axis="1 0 0"/>
         <!-- An explicit rgba overrides its material's. -->
@@ -142,7 +149,7 @@ def live_local_poses(viewer: mj_viser.MujocoViewer) -> dict[str, Pose]:
     report = sm.report
     nodes = {report["bodies"][b]["path"]: h for b, h in sm._body_frames.items()}
     nodes.update({report["geoms"][g]["path"]: h for g, h in sm._geom_handles.items()})
-    nodes.update({report["sites"][i]["path"]: h for i, h in sm._site_frames.items()})
+    nodes.update({report["sites"][i]["path"]: h for i, h in sm._site_handles.items()})
     return {path: (np.asarray(h.position, float), np.asarray(h.wxyz, float)) for path, h in nodes.items()}
 
 
@@ -279,28 +286,37 @@ def node_vertices(handle: Any) -> np.ndarray:
     return np.asarray(handle.vertices, float)
 
 
-def mujoco_scene(model: mujoco.MjModel, data: mujoco.MjData) -> dict[int, Any]:
-    """What MuJoCo's own visualizer draws for each geom (default options: groups 0-2)."""
+def mujoco_scene(
+    model: mujoco.MjModel, data: mujoco.MjData, visible: dict[str, set[int]]
+) -> dict[tuple[str, int], Any]:
+    """What MuJoCo's own visualizer draws for each geom and site with the same visible groups."""
+    opt = mujoco.MjvOption()
+    for kind, field in (("geoms", opt.geomgroup), ("sites", opt.sitegroup)):
+        field[:] = [int(g in visible[kind]) for g in range(len(field))]
     scn = mujoco.MjvScene(model, maxgeom=10000)
-    mujoco.mjv_updateScene(model, data, mujoco.MjvOption(), None, mujoco.MjvCamera(), mujoco.mjtCatBit.mjCAT_ALL, scn)
-    return {int(g.objid): g for g in scn.geoms[: scn.ngeom] if g.objtype == mujoco.mjtObj.mjOBJ_GEOM}
+    mujoco.mjv_updateScene(model, data, opt, None, mujoco.MjvCamera(), mujoco.mjtCatBit.mjCAT_ALL, scn)
+    kinds = {int(mujoco.mjtObj.mjOBJ_GEOM): "geoms", int(mujoco.mjtObj.mjOBJ_SITE): "sites"}
+    return {(kinds[int(g.objtype)], int(g.objid)): g for g in scn.geoms[: scn.ngeom] if int(g.objtype) in kinds}
 
 
 def check_against_mujoco_scene(
     viewer: mj_viser.MujocoViewer, model: mujoco.MjModel, data: mujoco.MjData, where: str
 ) -> int:
-    """Every geom MuJoCo draws is drawn alike: visibility, type, size, world pose, and rgba.
+    """Every geom and site MuJoCo draws is drawn alike: visibility, type, size, world pose, and rgba.
 
-    The oracle is mjv_updateScene, which resolves materials, sizes, and visibility
-    exactly as MuJoCo's viewer does, independently of mj_viser's conversion.
+    The oracle is mjv_updateScene with the viewer's visible groups, which resolves
+    materials, sizes, and visibility exactly as MuJoCo's viewer does, independently
+    of mj_viser's conversion.
     """
-    expected = mujoco_scene(model, data)
+    expected = mujoco_scene(model, data, viewer.visible_groups())
     scene = viewer.scene_report()
-    handles = viewer._scene_mgr._geom_handles  # type: ignore[union-attr]
+    sm = viewer._scene_mgr  # type: ignore[union-attr]
     live = live_local_poses(viewer)
     infinite = mj_viser.geom_builders.INFINITE_PLANE_HALF_SIZE
-    for entry in scene["geoms"]:
-        g, handle = entry["id"], handles.get(entry["id"])
+    entries = [("geoms", e, sm._geom_handles.get(e["id"])) for e in scene["geoms"]]
+    entries += [("sites", e, sm._site_handles.get(e["id"])) for e in scene["sites"]]
+    for kind, entry, handle in entries:
+        g = (kind, entry["id"])
         drawn = handle is not None and handle.visible
         if g not in expected:
             if drawn:
@@ -333,7 +349,7 @@ def check_against_mujoco_scene(
             half = np.where(size[:2] > 0, size[:2], infinite)
             ok = np.allclose(np.abs(v[:, :2]).max(axis=0), half, atol=1e-6) and np.allclose(v[:, 2], 0)
         elif gtype == mujoco.mjtGeom.mjGEOM_MESH:
-            mesh = model.geom_dataid[g]
+            mesh = model.geom_dataid[entry["id"]]
             ref = model.mesh_vert[model.mesh_vertadr[mesh] : model.mesh_vertadr[mesh] + model.mesh_vertnum[mesh]]
             # mesh_vert and glTF positions are both float32: the point sets must be identical.
             got = {tuple(r) for r in node_vertices(handle).astype(np.float32)}
@@ -371,9 +387,13 @@ def check_scene_report(scene: dict, model: mujoco.MjModel, viewer: mj_viser.Mujo
     paths = [x["path"] for k in ("bodies", "geoms", "sites") for x in scene[k]]
     if len(set(paths)) != len(paths):
         raise SystemExit("scene paths collide")
-    unnamed = [g for g in scene["geoms"] if not g["name"]]
-    if not unnamed or not all(g["path"].rsplit("/", 1)[-1] == f"g{g['id']}" for g in unnamed):
-        raise SystemExit(f"unnamed geoms lack id paths: {unnamed}")
+    for kind, prefix in (("geoms", "g"), ("sites", "s")):
+        unnamed = [e for e in scene[kind] if not e["name"]]
+        if not unnamed or not all(e["path"].rsplit("/", 1)[-1] == f"{prefix}{e['id']}" for e in unnamed):
+            raise SystemExit(f"unnamed {kind} lack id paths: {unnamed}")
+    site_status = {e["name"]: e["status"] for e in scene["sites"]}
+    if site_status.get("ghost") != "filtered" or site_status.get("mark_ellipsoid") != "rendered":
+        raise SystemExit(f"site statuses wrong: {site_status}")
     twins = [b["path"] for b in scene["bodies"] if b["name"] in ("ns/a_b", "ns_a/b")]
     if len(set(twins)) != 2:
         raise SystemExit(f"names that sanitize alike share a path: {twins}")
@@ -384,25 +404,48 @@ def check_scene_report(scene: dict, model: mujoco.MjModel, viewer: mj_viser.Mujo
         ("material-texture", "layered"),
         ("light", "lamp"),
         ("camera", "overhead"),
-        ("site", "tip_site"),
     ):
         if expected not in reported:
             raise SystemExit(f"{expected} missing from unsupported report: {sorted(reported)}")
+    check_coverage(scene, model)
     if not any(d["name"] == "floor" and "infinite plane" in d["note"] for d in scene["diagnostics"]):
         raise SystemExit(f"infinite floor missing from diagnostics: {scene['diagnostics']}")
     live = live_local_poses(viewer)
     if missing := [
         p
         for p in paths
-        if p not in live and not any(g["path"] == p and g["status"] != "rendered" for g in scene["geoms"])
+        if p not in live
+        and not any(e["path"] == p and e["status"] != "rendered" for e in scene["geoms"] + scene["sites"])
     ]:
         raise SystemExit(f"reported paths with no scene node: {missing}")
 
 
+def check_coverage(scene: dict, model: mujoco.MjModel) -> None:  # type: ignore[type-arg]
+    """The coverage summary accounts for every visual element the model has."""
+    totals = {
+        "geom": model.ngeom,
+        "site": model.nsite,
+        "light": model.nlight,
+        "camera": model.ncam,
+        "tendon": model.ntendon,
+        "skin": model.nskin,
+        "flex": model.nflex,
+    }
+    for kind, total in totals.items():
+        c = scene["coverage"][kind]
+        if c["total"] != total or c["rendered"] + c["filtered"] + c["unsupported"] != total:
+            raise SystemExit(f"coverage for {kind} does not account for all {total}: {c}")
+        reported = sum(u["kind"] == kind for u in scene["unsupported"])
+        if reported != c["unsupported"]:
+            raise SystemExit(f"{kind}: {c['unsupported']} unsupported but {reported} listed")
+
+
 def geom_visibility(viewer: mj_viser.MujocoViewer) -> dict[str, bool]:
     scene = viewer.scene_report()
-    handles = viewer._scene_mgr._geom_handles  # type: ignore[union-attr]
-    return {scene["geoms"][g]["path"]: bool(h.visible) for g, h in handles.items()}
+    sm = viewer._scene_mgr  # type: ignore[union-attr]
+    shown = {scene["geoms"][g]["path"]: bool(h.visible) for g, h in sm._geom_handles.items()}
+    shown.update({scene["sites"][s]["path"]: bool(h.visible) for s, h in sm._site_handles.items()})
+    return shown
 
 
 def check_recorded_visibility(messages: list[tuple[float, dict]], live: dict[str, bool], where: str) -> None:  # type: ignore[type-arg]
@@ -658,8 +701,10 @@ def two_client_selection(model: mujoco.MjModel) -> dict[str, str]:
 def robot_scenario(xml_path: str, out_dir: str) -> dict[str, Any]:
     """A real articulated robot at two known states: its home keyframe, then every hinge bent 0.3 rad.
 
-    Writes robot_two_states.viser and robot_report.json (scene report plus body and child
-    local transforms per state) and checks every body and geom, live and in the recording.
+    Writes robot_<model>.viser and robot_<model>.json (scene report plus body and child
+    local transforms per state, and which sites show) and checks every body, geom, and
+    site, live and in the recording. Sites are then shown in every group, as an
+    application would with ``set_visible_groups``, and must all match MuJoCo.
     """
     model = mujoco.MjModel.from_xml_path(xml_path)
     home = mujoco.MjData(model)
@@ -671,14 +716,12 @@ def robot_scenario(xml_path: str, out_dir: str) -> dict[str, Any]:
             bent[model.jnt_qposadr[j]] += 0.3
     states = {"A": home.qpos.copy(), "B": bent}
 
-    label = "/".join(xml_path.replace(os.sep, "/").split("/")[-2:])  # machine-independent
+    label = "/".join(xml_path.replace(os.sep, "/").split("/")[-3:])  # machine-independent
     out: dict[str, Any] = {"model": label, "states": {}}
     with mj_viser.MujocoViewer(model, port=0) as viewer:
         scene = viewer.scene_report()
         handles = viewer._scene_mgr._geom_handles  # type: ignore[union-attr]
         out["textured_mesh_nodes"] = sum(type(h).__name__ == "GlbHandle" for h in handles.values())
-        if out["textured_mesh_nodes"] == 0:
-            raise SystemExit(f"{xml_path} rendered no textured meshes")
         child_paths = {g["path"] for g in scene["geoms"]} | {x["path"] for x in scene["sites"]}
         serializer = viewer.server.get_scene_serializer()
         children: dict[str, Any] = {}
@@ -703,7 +746,25 @@ def robot_scenario(xml_path: str, out_dir: str) -> dict[str, Any]:
             serializer.insert_sleep(0.5)
         recording = serializer.serialize()
         live_visible = geom_visibility(viewer)
+
+        site_handles = viewer._scene_mgr._site_handles  # type: ignore[union-attr]
+
+        def shown_sites() -> list[str]:
+            return sorted(
+                e["name"] or e["path"]
+                for e in scene["sites"]
+                if e["id"] in site_handles and site_handles[e["id"]].visible
+            )
+
+        by_default = shown_sites()
+        viewer.set_visible_groups(sites=range(6))
+        check_against_mujoco_scene(viewer, model, kinematics(model, states["B"]), f"{label} with all site groups")
+        with_all = shown_sites()
+        if hidden := [e["name"] for e in scene["sites"] if e["status"] == "rendered" and e["id"] not in site_handles]:
+            raise SystemExit(f"{label}: rendered sites without nodes: {hidden}")
+        out["sites"] = {"shown_by_default": by_default, "shown_with_all_site_groups": with_all}
     messages = replay_recording(recording)
+    check_coverage(scene, model)
     check_recorded_visibility(messages, live_visible, "robot recording")
     for name, window_end in (("A", 0.5), ("B", float("inf"))):
         check_world_poses(
@@ -716,12 +777,13 @@ def robot_scenario(xml_path: str, out_dir: str) -> dict[str, Any]:
     if moved := static_child_messages(messages, scene):
         raise SystemExit(f"robot recording moved static children: {moved[:5]}")
 
-    with open(os.path.join(out_dir, "robot_two_states.viser"), "wb") as f:
+    slug = label.removesuffix(".xml").replace("/", "_")
+    with open(os.path.join(out_dir, f"robot_{slug}.viser"), "wb") as f:
         f.write(recording)
     out["child_local_transforms"] = children
     out["scene"] = scene
-    out["recording"] = {"file": "robot_two_states.viser", "sha256": hashlib.sha256(recording).hexdigest()}
-    with open(os.path.join(out_dir, "robot_report.json"), "w") as f:
+    out["recording"] = {"file": f"robot_{slug}.viser", "sha256": hashlib.sha256(recording).hexdigest()}
+    with open(os.path.join(out_dir, f"robot_{slug}.json"), "w") as f:
         json.dump(out, f, indent=2, sort_keys=True)
         f.write("\n")
     return {
@@ -729,6 +791,9 @@ def robot_scenario(xml_path: str, out_dir: str) -> dict[str, Any]:
         "bodies": len(scene["bodies"]),
         "world_poses_checked": {k: v["world_poses_checked"] for k, v in out["states"].items()},
         "unsupported": sorted(f"{u['kind']}:{u['name']}" for u in scene["unsupported"]),
+        "coverage": scene["coverage"],
+        "textured_mesh_nodes": out["textured_mesh_nodes"],
+        "sites": {k: len(v) for k, v in out["sites"].items()},
         "recording_sha256": out["recording"]["sha256"],
     }
 
@@ -832,6 +897,19 @@ def main(out_dir: str, env_label: str) -> None:
         serializer.insert_sleep(0.5)
     recording = serializer.serialize()
     live_visible = geom_visibility(viewer)
+
+    # --- Group visibility is explicit viewer state ------------------------------------------
+    # Showing every geom and site group must match MuJoCo with every group enabled, and
+    # restoring MuJoCo's defaults (groups 0-2) must match MuJoCo's default view again.
+    at_b = kinematics(model, STATES["B"], MOCAP["B"])
+    viewer.set_visible_groups(geoms=range(6), sites=range(6))
+    all_groups = check_against_mujoco_scene(viewer, model, at_b, "all groups shown")
+    viewer.set_visible_groups(geoms={0, 1, 2}, sites={0, 1, 2})
+    default_groups = check_against_mujoco_scene(viewer, model, at_b, "default groups restored")
+    if all_groups <= default_groups:
+        raise SystemExit("showing all groups revealed nothing; the group-4 site should appear")
+    report["group_visibility"] = {"default_groups_drawn": default_groups, "all_groups_drawn": all_groups}
+
     # Geoms and sites are static in their body frames: updates must not have moved them.
     for path, (pos, quat) in children_before.items():
         if not (np.allclose(live[path][0], pos) and np.allclose(live[path][1], quat)):
@@ -858,6 +936,12 @@ def main(out_dir: str, env_label: str) -> None:
     viewer.close()
     if viewer.is_open:
         raise SystemExit("viewer still open after close()")
+    # The report is a function of the model alone: identical open, closed, or elsewhere.
+    if viewer.scene_report() != scene or mj_viser.MujocoViewer(model).scene_report() != scene:
+        raise SystemExit("scene report differs between viewers of the same model")
+    with open(os.path.join(out_dir, "scene_report.json"), "w") as f:
+        json.dump(scene, f, indent=2, sort_keys=True)
+        f.write("\n")
     rec_path = os.path.join(out_dir, "two_states.viser")
     with open(rec_path, "wb") as f:
         f.write(recording)
@@ -949,8 +1033,10 @@ def main(out_dir: str, env_label: str) -> None:
     report["startup_unbindable_host"] = expect_raises(OSError, mj_viser.MujocoViewer(model, host="192.0.2.1").open)
 
     # --- A real textured articulated robot, when one is provided ---------------------------
-    if robot := os.environ.get("MJ_VISER_ROBOT_XML"):
-        report["robot"] = robot_scenario(robot, out_dir)
+    if robots := os.environ.get("MJ_VISER_ROBOT_XML"):
+        report["robots"] = [robot_scenario(path, out_dir) for path in robots.split(os.pathsep)]
+        if not any(r["textured_mesh_nodes"] for r in report["robots"]):
+            raise SystemExit("no robot rendered a textured mesh")
 
     report.update(
         environment=env_label,

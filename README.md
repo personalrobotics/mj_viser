@@ -18,7 +18,8 @@ mj_viser renders MuJoCo state; it does not step simulations or command robots. Y
 - **HUD overlay** — fixed-positioned status text over the 3D viewport (shown as text; markup is escaped)
 - **Body-frame scene** — one Viser frame per MuJoCo body, with geoms and sites beneath it at stable, unique paths
 - **Click-to-select** — click any geom to show its body name, to that browser only; the label follows the object
-- **Visibility groups** — toggle MuJoCo geom groups on/off
+- **Sites** — MuJoCo sites drawn as their shapes, beneath their bodies
+- **Visibility groups** — show or hide MuJoCo geom and site groups, from the panel or `set_visible_groups()`
 - **Loopback by default** — binds `127.0.0.1`; serving other machines is an explicit `host=` choice
 - **Multi-client** — multiple browser tabs viewing the same simulation
 - **Scene report** — `viewer.scene_report()` lists every body, geom, and site path and every element not rendered, with the reason
@@ -95,8 +96,11 @@ Each browser has its own selection; one viewer's click does not change another's
 ```python
 report = viewer.scene_report()  # plain JSON-ready data; works before open()
 report["bodies"][1]["path"]     # e.g. "/mujoco/b0_world/b1_trunk"
-report["unsupported"]           # e.g. [{"kind": "geom", "name": "floor", "reason": "plane geoms are not rendered"}, ...]
+report["unsupported"]           # e.g. [{"kind": "light", "name": "spotlight", "reason": "MuJoCo lights are not rendered; ..."}, ...]
+report["coverage"]["site"]      # e.g. {"total": 9, "rendered": 8, "filtered": 1, "unsupported": 0}
 ```
+
+`coverage` accounts for every geom, site, light, camera, tendon, skin, and flex in the model: each is rendered, filtered (with the reason in its entry), or listed in `unsupported`. The report depends only on the model, so it is the same wherever the model is rendered.
 
 Paths are built from MuJoCo ids plus sanitized names (`b3_trunk`, `g7`, `s2_imu`), so they are stable for a model and unique even for unnamed elements or names that differ only in punctuation.
 
@@ -122,11 +126,16 @@ viewer.add_panel(MyPanel())
 viewer.open()
 ```
 
-### Hide the visibility panel
+### Groups
+
+As in MuJoCo, geom and site groups 0–2 are shown and 3–5 hidden by default. The Visibility panel has a checkbox for each group in use; applications can set the same state directly, for example to show sensor sites kept in group 4:
 
 ```python
-# For apps that manage their own GUI
-viewer = MujocoViewer(model, show_visibility=False)
+viewer.set_visible_groups(sites=range(6))           # show every site group
+viewer.set_visible_groups(geoms={0, 1, 2, 3})       # also show geom group 3
+viewer.visible_groups()                             # {"geoms": {0, 1, 2, 3}, "sites": {0, ..., 5}}
+
+viewer = MujocoViewer(model, show_visibility=False)  # no panel; groups still apply
 ```
 
 ## How MuJoCo geometry is converted
@@ -135,7 +144,8 @@ Each rule follows MuJoCo's own visualizer, and the end-to-end check compares the
 
 - **Types**: box, sphere, cylinder, capsule, ellipsoid, plane, and mesh render. Height fields and SDFs do not and are listed in `scene_report()["unsupported"]`.
 - **Color**: a material's rgba applies only while the geom's rgba is MuJoCo's default `0.5 0.5 0.5 1`; an explicit geom rgba wins.
-- **Filtering**: a geom whose resolved alpha is 0 is not drawn (`filtered` in the report). Geom groups 0–2 are visible and 3–5 hidden by default, as in MuJoCo; the Visibility panel changes that.
+- **Filtering**: a geom or site whose resolved alpha is 0 is not drawn (`filtered` in the report). Groups 0–2 are visible and 3–5 hidden by default, as in MuJoCo; see [Groups](#groups).
+- **Sites**: sphere, capsule, ellipsoid, cylinder, and box sites render with MuJoCo's size, local pose, and color rules (the same material rule as geoms).
 - **Textures**: 2D textures render on meshes with texture coordinates and on planes. Planes honor the material's `texrepeat` and `texuniform`; meshes honor `texrepeat` with MuJoCo 3.12 or newer. MuJoCo 3.12 changed its renderer's texture layout (mesh `texrepeat`, plane tiling origin), and mj_viser follows the installed release. Textures on other geom types, and cube or skybox textures, are not drawn; the geom keeps its base color and the report lists it.
 - **Infinite planes** (size 0) render as a square of half-size 50 m, noted in `scene_report()["diagnostics"]`.
 

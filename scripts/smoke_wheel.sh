@@ -14,11 +14,16 @@
 # Artifacts, per ENV:
 #   OUT_DIR/ENV/smoke_report.json  results, input-state hashes, installed versions, wheel sha256
 #   OUT_DIR/ENV/two_states.viser   Viser recording of the two rendered states
-# With MJ_VISER_ROBOT_XML=path/to/scene.xml, also per ENV:
-#   OUT_DIR/ENV/robot_report.json, OUT_DIR/ENV/robot_two_states.viser   that robot at two states
+# With MJ_VISER_ROBOT_XML=a/scene.xml:b/robot.xml (colon-separated), also per ENV and robot:
+#   OUT_DIR/ENV/robot_<model>.json, OUT_DIR/ENV/robot_<model>.viser   that robot at two states
 set -euo pipefail
 if [ -n "${MJ_VISER_ROBOT_XML:-}" ]; then
-  MJ_VISER_ROBOT_XML="$(cd "$(dirname "$MJ_VISER_ROBOT_XML")" && pwd)/$(basename "$MJ_VISER_ROBOT_XML")"
+  absolute=()
+  IFS=: read -ra robots <<< "$MJ_VISER_ROBOT_XML"
+  for robot in "${robots[@]}"; do
+    absolute+=("$(cd "$(dirname "$robot")" && pwd)/$(basename "$robot")")
+  done
+  MJ_VISER_ROBOT_XML="$(IFS=:; echo "${absolute[*]}")"
   export MJ_VISER_ROBOT_XML
 fi
 

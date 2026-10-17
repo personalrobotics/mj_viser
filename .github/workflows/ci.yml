@@ -76,15 +76,24 @@ jobs:
       - name: Verify artifact hashes
         run: (cd dist && sha256sum -c SHA256SUMS)
 
-      # Real textured articulated robot for the end-to-end check, pinned to one commit.
-      - name: Fetch robot fixture (MuJoCo Menagerie unitree_a1)
+      # Real robots for the end-to-end check, each pinned to one commit: a textured articulated
+      # robot (MuJoCo Menagerie unitree_a1), and the ADA and Geodude models with their sites.
+      - name: Fetch robot fixtures
         run: |
-          git init -q menagerie
-          cd menagerie
-          git remote add origin https://github.com/google-deepmind/mujoco_menagerie.git
-          git sparse-checkout set unitree_a1
-          git fetch -q --depth 1 --filter=blob:none origin feadf76d42f8a2162426f7d226a3b539556b3bf5
-          git checkout -q FETCH_HEAD
+          fetch() {  # fetch DIR URL COMMIT PATH...
+            git init -q "$1"
+            git -C "$1" remote add origin "$2"
+            git -C "$1" sparse-checkout set "${@:4}"
+            git -C "$1" fetch -q --depth 1 --filter=blob:none origin "$3"
+            git -C "$1" checkout -q FETCH_HEAD
+          }
+          fetch menagerie https://github.com/google-deepmind/mujoco_menagerie.git \
+            feadf76d42f8a2162426f7d226a3b539556b3bf5 unitree_a1
+          fetch ada https://github.com/personalrobotics/ada_assets.git \
+            66b2d12ffb70fe217c64c45691166fc43d1b203b src/ada_assets/models
+          g=src/geodude_assets/models
+          fetch geodude https://github.com/personalrobotics/geodude_assets.git \
+            30ca5ff8706e5d856fd22d2511c879026ee45bb3 $g/geodude $g/universal_robots_ur5e $g/robotiq_2f140 $g/vention
 
       # Software OpenGL, so the texture check can compare against MuJoCo's renderer.
       - name: Install OSMesa
@@ -99,8 +108,10 @@ jobs:
         run: |
           envs="locked latest"
           if [ "${{ matrix.python-version }}" = "3.11" ]; then envs="lowest $envs"; fi
-          MJ_VISER_WHEEL="$(ls dist/mj_viser-*.whl)" MJ_VISER_ROBOT_XML=menagerie/unitree_a1/scene.xml \
-            scripts/smoke_wheel.sh e2e $envs
+          robots=menagerie/unitree_a1/scene.xml
+          robots=$robots:ada/src/ada_assets/models/scene.xml
+          robots=$robots:geodude/src/geodude_assets/models/geodude/geodude.xml
+          MJ_VISER_WHEEL="$(ls dist/mj_viser-*.whl)" MJ_VISER_ROBOT_XML=$robots scripts/smoke_wheel.sh e2e $envs
           cp dist/SHA256SUMS e2e/
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
