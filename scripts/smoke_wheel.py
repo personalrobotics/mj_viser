@@ -90,6 +90,8 @@ MJCF = """
       <site name="mark_ellipsoid" type="ellipsoid" size="0.01 0.015 0.02" pos="0.25 0 0.06" group="4"/>
       <site type="sphere" size="0.01" pos="0.05 0 0.06"/>
       <site name="ghost" size="0.01" pos="0.3 0 0.06" rgba="1 0 0 0"/>
+      <!-- A texture on a site's material is not drawn (as in MuJoCo's classic renderer) and is reported. -->
+      <site name="painted_site" type="box" size="0.01 0.01 0.01" pos="0.12 0 0.08" material="checkered"/>
       <body name="slider" pos="0.3 0 0">
         <joint name="slide" type="slide" axis="1 0 0"/>
         <!-- An explicit rgba overrides its material's. -->
@@ -402,6 +404,7 @@ def check_scene_report(scene: dict, model: mujoco.MjModel, viewer: mj_viser.Mujo
         ("geom", "terrain"),
         ("texture", "painted"),
         ("material-texture", "layered"),
+        ("site-texture", "painted_site"),
         ("light", "lamp"),
         ("camera", "overhead"),
     ):
@@ -616,6 +619,55 @@ def glb_color_at(glb: dict[str, Any], point: np.ndarray) -> np.ndarray:
             h, wdt = image.shape[:2]
             return image[min(int(v * h), h - 1), min(int(u * wdt), wdt - 1)] * glb["factor"][:3]
     raise SystemExit(f"no GLB triangle contains {point}")
+
+
+def panel_free_groups(model: mujoco.MjModel) -> dict[str, Any]:
+    """Group visibility is viewer state: it applies without the panel and before open().
+
+    One panel-free viewer starts at MuJoCo's defaults (the group-4 site hidden) and then
+    shows site group 4; another is configured before open(). Each state must match
+    MuJoCo's view with the same groups. Malformed group ids are rejected and change nothing.
+    """
+    defaults = {"geoms": {0, 1, 2}, "sites": {0, 1, 2}}
+    with_four = {"geoms": {0, 1, 2}, "sites": {0, 1, 2, 4}}
+    at_a = kinematics(model, STATES["A"], MOCAP["A"])
+    group4 = model.site("mark_ellipsoid").id
+    out: dict[str, Any] = {}
+
+    viewer = mj_viser.MujocoViewer(model, port=0, show_visibility=False)
+    rejected = []
+    for bad in ([1.9], ["2"], [True], [-1], [6], "012"):
+        try:
+            viewer.set_visible_groups(geoms=[0, 1], sites=bad)  # type: ignore[arg-type]
+        except (TypeError, ValueError) as e:
+            rejected.append(f"{bad!r}: {type(e).__name__}")
+        else:
+            raise SystemExit(f"set_visible_groups accepted sites={bad!r}")
+    if viewer.visible_groups() != defaults:
+        raise SystemExit(f"rejected input changed visibility: {viewer.visible_groups()}")
+    out["rejected"] = rejected
+    with viewer:
+        viewer.update(at_a)
+        if viewer._gui_mgr is not None:  # type: ignore[attr-defined]
+            raise SystemExit("show_visibility=False built a panel")
+        check_against_mujoco_scene(viewer, model, at_a, "panel-free defaults")
+        if viewer._scene_mgr._site_handles[group4].visible:  # type: ignore[union-attr]
+            raise SystemExit("group-4 site shown by default without the panel")
+        viewer.set_visible_groups(sites={0, 1, 2, 4})
+        check_against_mujoco_scene(viewer, model, at_a, "panel-free, site group 4 shown")
+    out["defaults_then_set"] = "matches MuJoCo"
+
+    viewer = mj_viser.MujocoViewer(model, port=0, show_visibility=False)
+    viewer.set_visible_groups(sites={0, 1, 2, 4})  # before open()
+    if viewer.visible_groups() != with_four:
+        raise SystemExit(f"before-open setting not kept: {viewer.visible_groups()}")
+    with viewer:
+        viewer.update(at_a)
+        if not viewer._scene_mgr._site_handles[group4].visible:  # type: ignore[union-attr]
+            raise SystemExit("site group 4, set before open(), is hidden")
+        check_against_mujoco_scene(viewer, model, at_a, "panel-free, configured before open")
+    out["configured_before_open"] = "matches MuJoCo"
+    return out
 
 
 def two_client_selection(model: mujoco.MjModel) -> dict[str, str]:
@@ -968,6 +1020,7 @@ def main(out_dir: str, env_label: str) -> None:
 
     report["two_client_selection"] = two_client_selection(model)
     report["texture_oracle"] = texture_scenario()
+    report["panel_free_groups"] = panel_free_groups(model)
 
     # --- Update failures return to the caller ---------------------------------------------
     # Adversarial models: every array the old size check compared is the same length.

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import html
+import numbers
 import socket
 import sys
 import threading
@@ -173,12 +174,16 @@ class MujocoViewer:
         Arguments left as None keep their current setting. Works whether or not the
         viewer is open and whether or not the Visibility panel is shown; the panel's
         checkboxes follow.
+
+        Raises:
+            TypeError: If a group is not an integer (bools and integral floats included).
+            ValueError: If a group is outside MuJoCo's 0-5.
+        Nothing changes unless both arguments are valid.
         """
+        requested = {"geoms": geoms, "sites": sites}
+        validated = {kind: _validate_groups(kind, groups) for kind, groups in requested.items() if groups is not None}
         with self._lock:
-            if geoms is not None:
-                self._visible["geoms"] = {int(g) for g in geoms}
-            if sites is not None:
-                self._visible["sites"] = {int(s) for s in sites}
+            self._visible.update(validated)
             self._apply_visibility()
 
     def visible_groups(self) -> dict[str, set[int]]:
@@ -317,6 +322,22 @@ class MujocoViewer:
             self._scene_mgr = None
             self._gui_mgr = None
             self._huds.clear()
+
+
+_NUM_GROUPS = 6  # MuJoCo's mjNGROUP
+
+
+def _validate_groups(kind: str, groups: Iterable[int]) -> set[int]:
+    if isinstance(groups, (str, bytes)) or not isinstance(groups, Iterable):
+        raise TypeError(f"{kind} must be an iterable of group ids, got {groups!r}")
+    result: set[int] = set()
+    for group in groups:
+        if isinstance(group, bool) or not isinstance(group, numbers.Integral):
+            raise TypeError(f"{kind} group ids must be integers, got {group!r}")
+        if not 0 <= group < _NUM_GROUPS:
+            raise ValueError(f"{kind} group ids must be in 0-{_NUM_GROUPS - 1}, got {group}")
+        result.add(int(group))
+    return result
 
 
 def _check_bindable(host: str, port: int) -> None:

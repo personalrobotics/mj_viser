@@ -136,6 +136,16 @@ def build_scene_report(model: mujoco.MjModel) -> dict[str, Any]:
             site["reason"] = "rgba alpha is 0"
         else:
             site["status"] = "rendered"
+            mat = model.site_matid[s]
+            if mat >= 0 and model.mat_texid[mat, mujoco.mjtTextureRole.mjTEXROLE_RGB] >= 0:
+                unsupported.append(
+                    {
+                        "kind": "site-texture",
+                        "id": s,
+                        "name": name,
+                        "reason": f"textures on {type_name} sites are not rendered; base color used",
+                    }
+                )
         report["sites"].append(site)
 
     for kind, count, obj, reason in (

@@ -43,7 +43,8 @@
 - Geom and site group visibility is viewer state (#23): `set_visible_groups(geoms=…,
   sites=…)` and `visible_groups()`, MuJoCo's defaults (groups 0–2 shown), and per-group
   checkboxes for both kinds in the Visibility panel. Groups now apply even with
-  `show_visibility=False`, which previously showed every group.
+  `show_visibility=False`, which previously showed every group. Group ids must be
+  integers 0–5; other values raise and change nothing.
 - `scene_report()["coverage"]` counts every geom, site, light, camera, tendon, skin, and
   flex as rendered, filtered, or unsupported (#23).
 - `set_hud()` content and `SensorPanel` titles, channel labels, and colors are treated as
