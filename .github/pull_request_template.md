@@ -9,7 +9,8 @@
 
 ## Testing
 
-- [ ] `uv run pytest tests/ -v` passes
+- [ ] `uv run mypy src` passes
+- [ ] `scripts/smoke_wheel.sh dist/smoke locked` passes
 - [ ] `uv run ruff check .` passes
 - [ ] `uv run ruff format --check .` passes
 - [ ] Integration tested locally against the robot-code workspace (if cross-repo)

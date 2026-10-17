@@ -86,14 +86,16 @@ jobs:
           git fetch -q --depth 1 --filter=blob:none origin feadf76d42f8a2162426f7d226a3b539556b3bf5
           git checkout -q FETCH_HEAD
 
-      - name: Pytest
-        run: |
-          uv sync --locked --all-extras
-          uv run pytest tests/ -v
+      # Software OpenGL, so the texture check can compare against MuJoCo's renderer.
+      - name: Install OSMesa
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libosmesa6
 
       # Same end-to-end scenario against the locked and newest dependencies on every
       # Python, and against every declared minimum on the oldest supported Python.
       - name: Clean-wheel end-to-end check
+        env:
+          MUJOCO_GL: osmesa
+          MJ_VISER_REQUIRE_RENDER: "1"
         run: |
           envs="locked latest"
           if [ "${{ matrix.python-version }}" = "3.11" ]; then envs="lowest $envs"; fi

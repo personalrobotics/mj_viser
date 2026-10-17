@@ -20,9 +20,10 @@ and runs `uv sync`. You can then work in any sibling's directory.
 From inside this repo:
 
 ```bash
-uv run pytest tests/ -v
 uv run ruff check .
 uv run ruff format --check .
+uv run mypy src
+UV_PYTHON=3.12 scripts/smoke_wheel.sh dist/smoke locked   # end-to-end check from a clean wheel
 ```
 
 From the workspace root, you can also run the cross-repo integration suite:
@@ -34,7 +35,7 @@ uv run pytest tests/integration -v
 ## Pull requests
 
 - Branch from `main`. Open a PR with a clear summary and test plan.
-- Per-repo CI (ruff + pytest) must pass.
+- Per-repo CI (ruff, mypy, and the clean-wheel end-to-end check) must pass.
 - Cross-repo integration CI in robot-code runs automatically when this repo's
   `main` advances, and on scheduled nightly runs.
 - Review is by [@siddhss5](https://github.com/siddhss5) (enforced via CODEOWNERS).
