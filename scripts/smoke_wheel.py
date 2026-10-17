@@ -59,6 +59,8 @@ MJCF = """
     <body name="ns_a/b" pos="1.2 0 0"><geom name="twin" type="sphere" size="0.05"/></body>
     <!-- Far below the floor: must stay visible (no height heuristic). -->
     <body name="deep" pos="0 1 -2"><geom name="below" type="sphere" size="0.1"/></body>
+    <!-- Mocap: welded to the world, yet moved by mocap_pos/mocap_quat. -->
+    <body name="target" mocap="true" pos="0 -1 0.5"><geom name="target_box" type="box" size="0.05 0.05 0.05"/></body>
     <body name="arm" pos="0 0 0.5">
       <joint name="hinge" type="hinge" axis="0 1 0"/>
       <geom name="link" type="capsule" size="0.05" fromto="0 0 0 0.3 0 0" rgba="0.8 0.3 0.3 1"/>
@@ -66,6 +68,8 @@ MJCF = """
         <joint name="slide" type="slide" axis="1 0 0"/>
         <geom name="tip" type="box" size="0.04 0.04 0.04" rgba="0.3 0.3 0.8 1"/>
         <site name="tip_site" pos="0.04 0 0"/>
+        <!-- Fixed child of an articulated body: moves with it, but its local pose never changes. -->
+        <body name="cap" pos="0.05 0 0"><geom name="cap_ball" type="sphere" size="0.02"/></body>
       </body>
     </body>
   </worldbody>
@@ -73,6 +77,7 @@ MJCF = """
 """
 
 STATES = {"A": [0.3, 0.1], "B": [-0.7, 0.25]}
+MOCAP = {"A": [0.0, -1.0, 0.5], "B": [1.0, 2.0, 3.0]}  # position of the "target" mocap body
 
 # Fields an update could plausibly touch: state, controls, derived kinematics, sensors.
 HASHED_FIELDS = ("time", "qpos", "qvel", "act", "ctrl", "mocap_pos", "mocap_quat", "xpos", "geom_xpos", "sensordata")
@@ -160,10 +165,14 @@ def check_world_poses(
     return checked
 
 
-def kinematics(model: mujoco.MjModel, qpos: np.ndarray | list[float]) -> mujoco.MjData:
+def kinematics(
+    model: mujoco.MjModel, qpos: np.ndarray | list[float], mocap_pos: list[float] | None = None
+) -> mujoco.MjData:
     # Independent reference: MuJoCo kinematics on a fresh MjData.
     ref = mujoco.MjData(model)
     ref.qpos[:] = qpos
+    if mocap_pos is not None:
+        ref.mocap_pos[0] = mocap_pos
     mujoco.mj_kinematics(model, ref)
     return ref
 
@@ -179,8 +188,9 @@ def replay_recording(recording: bytes) -> list[tuple[float, dict]]:  # type: ign
 
 
 def static_child_messages(messages: list[tuple[float, dict]], scene: dict) -> list[str]:  # type: ignore[type-arg]
-    """Pose messages that touched a geom or site after the initial scene snapshot."""
+    """Pose messages that touched a geom, a site, or a static body after the initial snapshot."""
     children = {g["path"] for g in scene["geoms"]} | {s["path"] for s in scene["sites"]}
+    children |= {b["path"] for b in scene["bodies"] if not b["dynamic"]}
     return [
         f"{t}: {m['type']} {m['name']}"
         for t, m in messages
@@ -431,6 +441,7 @@ def main(out_dir: str, env_label: str) -> None:
     for name, qpos in STATES.items():
         d = mujoco.MjData(model)
         d.qpos[:] = qpos
+        d.mocap_pos[0] = MOCAP[name]
         d.time = {"A": 1.0, "B": 2.0}[name]
         if name == "A":
             mujoco.mj_forward(model, d)  # B deliberately skips kinematics: the viewer must compute them itself.
@@ -468,7 +479,9 @@ def main(out_dir: str, env_label: str) -> None:
         if before != after:
             raise SystemExit(f"update() modified source state {name}")
         live = live_local_poses(viewer)
-        checked = check_world_poses(live, scene, model, kinematics(model, STATES[name]), f"live state {name}")
+        checked = check_world_poses(
+            live, scene, model, kinematics(model, STATES[name], MOCAP[name]), f"live state {name}"
+        )
         if viewer.data is d:
             raise SystemExit("viewer retained the caller's MjData")
         states_report[name] = {
@@ -517,10 +530,16 @@ def main(out_dir: str, env_label: str) -> None:
     messages = replay_recording(recording)
     for name, window_end in (("A", 0.5), ("B", float("inf"))):
         recorded = recorded_local_poses(messages, window_end)
-        check_world_poses(recorded, scene, model, kinematics(model, STATES[name]), f"recording state {name}")
+        check_world_poses(
+            recorded, scene, model, kinematics(model, STATES[name], MOCAP[name]), f"recording state {name}"
+        )
     if moved := static_child_messages(messages, scene):
         raise SystemExit(f"recording moved static children: {moved[:5]}")
     report["recording"]["replays_to_states"] = ["A", "B"]
+    dynamic = {b["name"]: b["dynamic"] for b in scene["bodies"]}
+    if not dynamic["target"] or dynamic["cap"]:
+        raise SystemExit(f"mocap body must be dynamic and fixed child static: {dynamic}")
+    report["dynamic_bodies"] = sorted(name for name, moves in dynamic.items() if moves)
 
     report["two_client_selection"] = two_client_selection(model)
 

@@ -65,7 +65,9 @@ def build_scene_report(model: mujoco.MjModel) -> dict[str, Any]:
                 "name": _name(model, mujoco.mjtObj.mjOBJ_BODY, b),
                 "path": path,
                 "parent": None if b == 0 else int(model.body_parentid[b]),
-                "dynamic": bool(b != 0 and model.body_weldid[b] != 0),
+                # A body's pose relative to its parent changes only through its own joints or,
+                # for a mocap body, through mocap_pos/mocap_quat.
+                "dynamic": bool(b != 0 and (model.body_jntnum[b] > 0 or model.body_mocapid[b] >= 0)),
             }
         )
 
@@ -127,7 +129,7 @@ class SceneManager:
     """Owns the Viser nodes for one model: a frame per body, geoms and sites beneath.
 
     Geom and site poses are static in their body's frame. Each update poses only the
-    dynamic (non-welded) body frames, relative to their parent body.
+    dynamic body frames (those with joints, and mocap bodies), relative to their parent.
     """
 
     def __init__(
@@ -176,7 +178,7 @@ class SceneManager:
             )
 
         self._server.on_client_disconnect(lambda client: self._forget_client(client.client_id))
-        # Welded bodies never move relative to their parent: pose them once, here.
+        # Bodies without joints or mocap never move relative to their parent: pose them once, here.
         self._pose_bodies(range(1, self._model.nbody))
 
     def update_transforms(self) -> None:
