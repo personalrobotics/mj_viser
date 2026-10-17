@@ -24,6 +24,7 @@ import json
 import os
 import pkgutil
 import socket
+import struct
 import sys
 import time
 import tokenize
@@ -34,24 +35,34 @@ from typing import Any
 import msgspec
 import mujoco
 import numpy as np
+import PIL.Image
 import zstandard
 
 import mj_viser
 
 # A startup hang is one of the failures under test; never let it stall CI.
-faulthandler.dump_traceback_later(60, exit=True)
+faulthandler.dump_traceback_later(300, exit=True)
 
 MJCF = """
 <mujoco>
   <asset>
     <texture name="checker" type="2d" builtin="checker" width="8" height="8" rgb1="1 1 1" rgb2="0.2 0.2 0.2"/>
     <material name="checkered" texture="checker"/>
+    <material name="tinted" rgba="0.1 0.2 0.3 0.4"/>
+    <hfield name="bumps" nrow="2" ncol="2" size="0.5 0.5 0.1 0.05" elevation="0 1 1 0"/>
     <mesh name="tet" vertex="0 0 0  0.2 0 0  0 0.2 0  0 0 0.2" texcoord="0 0  1 0  0 1  1 1"
           face="0 2 1  0 1 3  0 3 2  1 2 3"/>
   </asset>
   <worldbody>
     <geom name="tet" type="mesh" mesh="tet" material="checkered" pos="-0.5 0 0"/>
-    <geom name="floor" type="plane" size="2 2 0.1"/>
+    <!-- Infinite (size 0) textured plane: rendered as a large square, with a diagnostic. -->
+    <geom name="floor" type="plane" size="0 0 0.1" material="checkered"/>
+    <geom name="terrain" type="hfield" hfield="bumps" pos="3 3 0"/>
+    <!-- Material rules: a texture on a box is not drawn; a material's alpha is kept. -->
+    <geom name="painted" type="box" size="0.05 0.05 0.05" pos="2 0 0.5" material="checkered"/>
+    <geom name="glass" type="sphere" size="0.05" pos="2.2 0 0.5" material="tinted"/>
+    <geom name="egg" type="ellipsoid" size="0.05 0.08 0.1" pos="2.4 0 0.5" euler="0.3 0.2 0.1"/>
+    <geom name="can" type="cylinder" size="0.05 0.1" pos="2.6 0 0.5" euler="0.5 0 0"/>
     <light name="lamp" pos="0 0 3"/>
     <camera name="overhead" pos="0 0 3"/>
     <!-- "ns/a_b" and "ns_a/b" sanitize to the same text; the geom in the first is unnamed. -->
@@ -66,7 +77,8 @@ MJCF = """
       <geom name="link" type="capsule" size="0.05" fromto="0 0 0 0.3 0 0" rgba="0.8 0.3 0.3 1"/>
       <body name="slider" pos="0.3 0 0">
         <joint name="slide" type="slide" axis="1 0 0"/>
-        <geom name="tip" type="box" size="0.04 0.04 0.04" rgba="0.3 0.3 0.8 1"/>
+        <!-- An explicit rgba overrides its material's. -->
+        <geom name="tip" type="box" size="0.04 0.04 0.04" rgba="0.3 0.3 0.8 1" material="tinted"/>
         <site name="tip_site" pos="0.04 0 0"/>
         <!-- Fixed child of an articulated body: moves with it, but its local pose never changes. -->
         <body name="cap" pos="0.05 0 0"><geom name="cap_ball" type="sphere" size="0.02"/></body>
@@ -217,6 +229,135 @@ def frozen(local: dict[str, Pose]) -> dict[str, tuple[tuple[float, ...], tuple[f
     return {p: (tuple(np.round(a, 9)), tuple(np.round(b, 9))) for p, (a, b) in local.items()}
 
 
+def glb_primitive(glb: bytes) -> dict[str, Any]:
+    """The first mesh primitive of a GLB, decoded per the glTF 2.0 spec."""
+    jlen = struct.unpack_from("<I", glb, 12)[0]
+    doc = json.loads(glb[20 : 20 + jlen])
+    blen = struct.unpack_from("<I", glb, 20 + jlen)[0]
+    binary = glb[28 + jlen : 28 + jlen + blen]
+
+    def accessor(i: int) -> np.ndarray:
+        a = doc["accessors"][i]
+        view = doc["bufferViews"][a["bufferView"]]
+        width = {"VEC2": 2, "VEC3": 3, "SCALAR": 1}[a["type"]]
+        dtype = {5126: np.float32, 5125: np.uint32, 5123: np.uint16, 5121: np.uint8}[a["componentType"]]
+        arr = np.frombuffer(binary, dtype, a["count"] * width, view.get("byteOffset", 0) + a.get("byteOffset", 0))
+        return arr.reshape(a["count"], width) if width > 1 else arr
+
+    prim = doc["meshes"][0]["primitives"][0]
+    material = doc["materials"][prim["material"]]
+    pbr = material["pbrMetallicRoughness"]
+    out = {
+        "positions": accessor(prim["attributes"]["POSITION"]).astype(float),
+        "triangles": accessor(prim["indices"]).reshape(-1, 3),
+        "factor": np.asarray(pbr.get("baseColorFactor", [1, 1, 1, 1]), float),
+        "alpha_mode": material.get("alphaMode", "OPAQUE"),
+        "uv": None,
+        "image": None,
+    }
+    if "TEXCOORD_0" in prim["attributes"] and "baseColorTexture" in pbr:
+        out["uv"] = accessor(prim["attributes"]["TEXCOORD_0"]).astype(float)
+        view = doc["bufferViews"][
+            doc["images"][doc["textures"][pbr["baseColorTexture"]["index"]]["source"]]["bufferView"]
+        ]
+        start = view.get("byteOffset", 0)
+        out["image"] = np.asarray(PIL.Image.open(io.BytesIO(binary[start : start + view["byteLength"]])).convert("RGB"))
+    return out
+
+
+def node_vertices(handle: Any) -> np.ndarray:
+    if type(handle).__name__ == "GlbHandle":
+        return glb_primitive(handle.glb_data)["positions"]
+    return np.asarray(handle.vertices, float)
+
+
+def mujoco_scene(model: mujoco.MjModel, data: mujoco.MjData) -> dict[int, Any]:
+    """What MuJoCo's own visualizer draws for each geom (default options: groups 0-2)."""
+    scn = mujoco.MjvScene(model, maxgeom=10000)
+    mujoco.mjv_updateScene(model, data, mujoco.MjvOption(), None, mujoco.MjvCamera(), mujoco.mjtCatBit.mjCAT_ALL, scn)
+    return {int(g.objid): g for g in scn.geoms[: scn.ngeom] if g.objtype == mujoco.mjtObj.mjOBJ_GEOM}
+
+
+def check_against_mujoco_scene(
+    viewer: mj_viser.MujocoViewer, model: mujoco.MjModel, data: mujoco.MjData, where: str
+) -> int:
+    """Every geom MuJoCo draws is drawn alike: visibility, type, size, world pose, and rgba.
+
+    The oracle is mjv_updateScene, which resolves materials, sizes, and visibility
+    exactly as MuJoCo's viewer does, independently of mj_viser's conversion.
+    """
+    expected = mujoco_scene(model, data)
+    scene = viewer.scene_report()
+    handles = viewer._scene_mgr._geom_handles  # type: ignore[union-attr]
+    live = live_local_poses(viewer)
+    infinite = mj_viser.geom_builders.INFINITE_PLANE_HALF_SIZE
+    for entry in scene["geoms"]:
+        g, handle = entry["id"], handles.get(entry["id"])
+        drawn = handle is not None and handle.visible
+        if g not in expected:
+            if drawn:
+                raise SystemExit(f"{where}: {entry['path']} is shown but MuJoCo does not draw it")
+            continue
+        if not drawn:
+            if entry["status"] == "unsupported":
+                continue  # reported, not drawn
+            raise SystemExit(f"{where}: MuJoCo draws {entry['path']} but it is not shown")
+        mj = expected[g]
+        gtype, size, rgba = int(mj.type), np.asarray(mj.size, float), np.asarray(mj.rgba, float)
+        kind = type(handle).__name__
+
+        # Size, against the geom type's own definition of its size parameters.
+        if gtype == mujoco.mjtGeom.mjGEOM_BOX:
+            ok = np.allclose(handle.dimensions, 2 * size, atol=1e-6)
+        elif gtype == mujoco.mjtGeom.mjGEOM_SPHERE:
+            ok = np.isclose(handle.radius, size[0], atol=1e-6)
+        elif gtype == mujoco.mjtGeom.mjGEOM_CYLINDER:
+            ok = np.isclose(handle.radius, size[0], atol=1e-6) and np.isclose(handle.height, 2 * size[2], atol=1e-6)
+        elif gtype == mujoco.mjtGeom.mjGEOM_CAPSULE:
+            v = node_vertices(handle)
+            axial = np.clip(v[:, 2], -size[2], size[2])
+            dist = np.linalg.norm(v - np.column_stack([np.zeros_like(axial), np.zeros_like(axial), axial]), axis=1)
+            ok = np.allclose(dist, size[0], atol=1e-5) and np.isclose(v[:, 2].max(), size[2] + size[0], atol=1e-5)
+        elif gtype == mujoco.mjtGeom.mjGEOM_ELLIPSOID:
+            ok = np.allclose(((node_vertices(handle) / size) ** 2).sum(axis=1), 1.0, atol=1e-5)
+        elif gtype == mujoco.mjtGeom.mjGEOM_PLANE:
+            v = node_vertices(handle)
+            half = np.where(size[:2] > 0, size[:2], infinite)
+            ok = np.allclose(np.abs(v[:, :2]).max(axis=0), half, atol=1e-6) and np.allclose(v[:, 2], 0)
+        elif gtype == mujoco.mjtGeom.mjGEOM_MESH:
+            mesh = model.geom_dataid[g]
+            ref = model.mesh_vert[model.mesh_vertadr[mesh] : model.mesh_vertadr[mesh] + model.mesh_vertnum[mesh]]
+            # mesh_vert and glTF positions are both float32: the point sets must be identical.
+            got = {tuple(r) for r in node_vertices(handle).astype(np.float32)}
+            ok = got == {tuple(r) for r in np.asarray(ref, np.float32)}
+        else:
+            raise SystemExit(f"{where}: no size oracle for {entry['type']}")
+        if not ok:
+            raise SystemExit(f"{where}: {entry['path']} ({entry['type']}) size differs from MuJoCo's {size}")
+
+        # Color and transparency.
+        if kind == "GlbHandle":
+            glb = glb_primitive(handle.glb_data)
+            ok = np.allclose(glb["factor"], rgba, atol=1e-6) and glb["alpha_mode"] == (
+                "BLEND" if rgba[3] < 1 else "OPAQUE"
+            )
+        else:
+            opacity = handle.opacity
+            ok = tuple(handle.color) == tuple(round(c * 255) for c in rgba[:3]) and (
+                opacity is None if rgba[3] >= 1 else opacity is not None and abs(opacity - rgba[3]) < 1e-6
+            )
+        if not ok:
+            raise SystemExit(f"{where}: {entry['path']} color differs from MuJoCo's rgba {rgba}")
+
+        # World pose.
+        pos, quat = compose(live, entry["path"])
+        mj_quat = np.zeros(4)
+        mujoco.mju_mat2Quat(mj_quat, np.asarray(mj.mat, float).reshape(9))
+        if not (np.allclose(pos, mj.pos, atol=1e-6) and same_rotation(quat, mj_quat)):
+            raise SystemExit(f"{where}: {entry['path']} pose differs from MuJoCo's scene")
+    return len(expected)
+
+
 def check_scene_report(scene: dict, model: mujoco.MjModel, viewer: mj_viser.MujocoViewer) -> None:  # type: ignore[type-arg]
     """Paths are unique and id-based; every element mj_viser skips is reported."""
     paths = [x["path"] for k in ("bodies", "geoms", "sites") for x in scene[k]]
@@ -229,9 +370,17 @@ def check_scene_report(scene: dict, model: mujoco.MjModel, viewer: mj_viser.Mujo
     if len(set(twins)) != 2:
         raise SystemExit(f"names that sanitize alike share a path: {twins}")
     reported = {(u["kind"], u["name"]) for u in scene["unsupported"]}
-    for expected in (("geom", "floor"), ("light", "lamp"), ("camera", "overhead"), ("site", "tip_site")):
+    for expected in (
+        ("geom", "terrain"),
+        ("texture", "painted"),
+        ("light", "lamp"),
+        ("camera", "overhead"),
+        ("site", "tip_site"),
+    ):
         if expected not in reported:
             raise SystemExit(f"{expected} missing from unsupported report: {sorted(reported)}")
+    if not any(d["name"] == "floor" and "infinite plane" in d["note"] for d in scene["diagnostics"]):
+        raise SystemExit(f"infinite floor missing from diagnostics: {scene['diagnostics']}")
     live = live_local_poses(viewer)
     if missing := [
         p
@@ -239,6 +388,120 @@ def check_scene_report(scene: dict, model: mujoco.MjModel, viewer: mj_viser.Mujo
         if p not in live and not any(g["path"] == p and g["status"] != "rendered" for g in scene["geoms"])
     ]:
         raise SystemExit(f"reported paths with no scene node: {missing}")
+
+
+def geom_visibility(viewer: mj_viser.MujocoViewer) -> dict[str, bool]:
+    scene = viewer.scene_report()
+    handles = viewer._scene_mgr._geom_handles  # type: ignore[union-attr]
+    return {scene["geoms"][g]["path"]: bool(h.visible) for g, h in handles.items()}
+
+
+def check_recorded_visibility(messages: list[tuple[float, dict]], live: dict[str, bool], where: str) -> None:  # type: ignore[type-arg]
+    """Filtering is the same on replay: each geom's final recorded visibility equals the live one."""
+    recorded: dict[str, bool] = {}
+    for _, m in messages:
+        if m["type"] == "SetSceneNodeVisibilityMessage":
+            recorded[m["name"]] = bool(m["visible"])
+    if differ := {p: (v, recorded.get(p)) for p, v in live.items() if recorded.get(p, True) != v}:
+        raise SystemExit(f"{where}: visibility differs from live (live, recorded): {differ}")
+
+
+QUADRANTS_PNG_SIZE = 64
+TEXTURE_MJCF = """
+<mujoco>
+  <asset>
+    <texture name="q" type="2d" file="quadrants.png"/>
+    <material name="slab_m" texture="q" emission="1" texrepeat="2 2"/>
+    <material name="plane_m" texture="q" emission="1" texrepeat="2 2"/>
+    <material name="uniform_m" texture="q" emission="1" texrepeat="1 1" texuniform="true"/>
+    <mesh name="slab" vertex="-.5 -.5 .01  .5 -.5 .01  .5 .5 .01  -.5 .5 .01  -.5 -.5 0  .5 -.5 0  .5 .5 0  -.5 .5 0"
+          texcoord="0 0  1 0  1 1  0 1  0 0  1 0  1 1  0 1"
+          face="0 1 2  0 2 3  4 6 5  4 7 6  0 4 5  0 5 1  1 5 6  1 6 2  2 6 7  2 7 3  3 7 4  3 4 0"/>
+  </asset>
+  <visual>
+    <global offwidth="1200" offheight="1200"/>
+    <headlight ambient="1 1 1" diffuse="0 0 0" specular="0 0 0"/>
+  </visual>
+  <worldbody>
+    <geom name="slab" type="mesh" mesh="slab" material="slab_m" pos="-1.2 0 0"/>
+    <geom name="plane" type="plane" size=".5 .5 .1" material="plane_m"/>
+    <geom name="uniform" type="plane" size="1 .5 .1" material="uniform_m" pos="1.7 0 0"/>
+    <camera name="top" pos="0 0 40" fovy="10"/>
+  </worldbody>
+</mujoco>
+"""
+
+
+def texture_scenario() -> dict[str, Any]:
+    """Texture orientation and scale against MuJoCo's own renderer.
+
+    A four-color texture (red, yellow / blue, cyan) on a mesh with texrepeat 2, a
+    plane with texrepeat 2, and a texuniform plane is rendered top-down by MuJoCo
+    (emission 1, ambient-only light, so pixels are texture colors). At 64 points
+    on each surface, the color glTF assigns in mj_viser's GLB (texture coordinate
+    interpolated over the containing triangle, origin top-left, REPEAT wrap) must
+    match MuJoCo's pixel.
+    """
+    q = np.zeros((QUADRANTS_PNG_SIZE, QUADRANTS_PNG_SIZE, 3), np.uint8)
+    half = QUADRANTS_PNG_SIZE // 2
+    q[:half, :, 0] = 255
+    q[half:, :, 2] = 255
+    q[:, half:, 1] = 255
+    png = io.BytesIO()
+    PIL.Image.fromarray(q).save(png, format="PNG")
+    model = mujoco.MjModel.from_xml_string(TEXTURE_MJCF, assets={"quadrants.png": png.getvalue()})
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+    try:
+        renderer = mujoco.Renderer(model, 1200, 1200)
+    except Exception as e:  # no OpenGL backend on this machine
+        if os.environ.get("MJ_VISER_REQUIRE_RENDER"):
+            raise
+        return {"skipped": f"MuJoCo renderer unavailable: {type(e).__name__}"}
+    renderer.update_scene(data, camera="top")
+    shot = renderer.render()
+    renderer.close()
+    scale = 1200 / (2 * 40 * np.tan(np.radians(5)))  # pixels per meter on the z=0 plane
+
+    samples = 0
+    with mj_viser.MujocoViewer(model, port=0) as viewer:
+        handles = viewer._scene_mgr._geom_handles  # type: ignore[union-attr]
+        for name in ("slab", "plane", "uniform"):
+            g = model.geom(name).id
+            glb = glb_primitive(handles[g].glb_data)
+            half_xy = model.geom_size[g][:2] if name != "slab" else np.array([0.5, 0.5])
+            rot = data.geom_xmat[g].reshape(3, 3)
+            for fx in np.linspace(-0.875, 0.875, 8):
+                for fy in np.linspace(-0.875, 0.875, 8):
+                    world = data.geom_xpos[g] + np.array([fx * half_xy[0], fy * half_xy[1], 0.0])
+                    if name == "slab":
+                        world[2] = 0.01  # top face
+                    truth = shot[int(600 - world[1] * scale), int(600 + world[0] * scale)].astype(float)
+                    got = glb_color_at(glb, rot.T @ (world - data.geom_xpos[g]))
+                    if np.abs(truth - got).max() > 2:
+                        raise SystemExit(f"texture on {name} at {world.round(3)}: MuJoCo {truth}, GLB {got}")
+                    samples += 1
+    return {
+        "samples_matching_mujoco_renderer": samples,
+        "surfaces": ["mesh texrepeat 2", "plane texrepeat 2", "plane texuniform"],
+    }
+
+
+def glb_color_at(glb: dict[str, Any], point: np.ndarray) -> np.ndarray:
+    """Color glTF assigns at a point on the surface: texture (top-left origin, REPEAT) x baseColorFactor."""
+    pos, uv, image = glb["positions"], glb["uv"], glb["image"]
+    for tri in glb["triangles"]:
+        a, b, c = pos[tri]
+        normal = np.cross(b - a, c - a)
+        if np.linalg.norm(normal) < 1e-12 or abs(np.dot(point - a, normal / np.linalg.norm(normal))) > 1e-4:
+            continue
+        w = np.linalg.lstsq(np.array([b - a, c - a]).T, point - a, rcond=None)[0]
+        bary = np.array([1 - w.sum(), w[0], w[1]])
+        if (bary >= -1e-6).all():
+            u, v = (bary @ uv[tri]) % 1.0
+            h, wdt = image.shape[:2]
+            return image[min(int(v * h), h - 1), min(int(u * wdt), wdt - 1)] * glb["factor"][:3]
+    raise SystemExit(f"no GLB triangle contains {point}")
 
 
 def two_client_selection(model: mujoco.MjModel) -> dict[str, str]:
@@ -354,6 +617,7 @@ def robot_scenario(xml_path: str, out_dir: str) -> dict[str, Any]:
             viewer.update(d)
             live = live_local_poses(viewer)
             checked = check_world_poses(live, scene, model, kinematics(model, qpos), f"robot live {name}")
+            drawn = check_against_mujoco_scene(viewer, model, kinematics(model, qpos), f"robot live {name}")
             local = {p: {"position": v[0].round(9).tolist(), "wxyz": v[1].round(9).tolist()} for p, v in live.items()}
             state_children = {p: v for p, v in local.items() if p in child_paths}
             if children and state_children != children:
@@ -362,11 +626,14 @@ def robot_scenario(xml_path: str, out_dir: str) -> dict[str, Any]:
             out["states"][name] = {
                 "qpos": qpos.round(9).tolist(),
                 "world_poses_checked": checked,
+                "mujoco_scene_geoms_matched": drawn,
                 "body_local_transforms": {b["path"]: local[b["path"]] for b in scene["bodies"]},
             }
             serializer.insert_sleep(0.5)
         recording = serializer.serialize()
+        live_visible = geom_visibility(viewer)
     messages = replay_recording(recording)
+    check_recorded_visibility(messages, live_visible, "robot recording")
     for name, window_end in (("A", 0.5), ("B", float("inf"))):
         check_world_poses(
             recorded_local_poses(messages, window_end),
@@ -479,9 +746,9 @@ def main(out_dir: str, env_label: str) -> None:
         if before != after:
             raise SystemExit(f"update() modified source state {name}")
         live = live_local_poses(viewer)
-        checked = check_world_poses(
-            live, scene, model, kinematics(model, STATES[name], MOCAP[name]), f"live state {name}"
-        )
+        reference = kinematics(model, STATES[name], MOCAP[name])
+        checked = check_world_poses(live, scene, model, reference, f"live state {name}")
+        drawn = check_against_mujoco_scene(viewer, model, reference, f"live state {name}")
         if viewer.data is d:
             raise SystemExit("viewer retained the caller's MjData")
         states_report[name] = {
@@ -489,9 +756,11 @@ def main(out_dir: str, env_label: str) -> None:
             "source_sha256_before": before,
             "source_sha256_after": after,
             "world_poses_checked": checked,
+            "mujoco_scene_geoms_matched": drawn,
         }
         serializer.insert_sleep(0.5)
     recording = serializer.serialize()
+    live_visible = geom_visibility(viewer)
     # Geoms and sites are static in their body frames: updates must not have moved them.
     for path, (pos, quat) in children_before.items():
         if not (np.allclose(live[path][0], pos) and np.allclose(live[path][1], quat)):
@@ -536,12 +805,14 @@ def main(out_dir: str, env_label: str) -> None:
     if moved := static_child_messages(messages, scene):
         raise SystemExit(f"recording moved static children: {moved[:5]}")
     report["recording"]["replays_to_states"] = ["A", "B"]
+    check_recorded_visibility(messages, live_visible, "recording")
     dynamic = {b["name"]: b["dynamic"] for b in scene["bodies"]}
     if not dynamic["target"] or dynamic["cap"]:
         raise SystemExit(f"mocap body must be dynamic and fixed child static: {dynamic}")
     report["dynamic_bodies"] = sorted(name for name, moves in dynamic.items() if moves)
 
     report["two_client_selection"] = two_client_selection(model)
+    report["texture_oracle"] = texture_scenario()
 
     # --- Update failures return to the caller ---------------------------------------------
     # Adversarial models: every array the old size check compared is the same length.

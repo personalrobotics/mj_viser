@@ -22,7 +22,7 @@ mj_viser renders MuJoCo state; it does not step simulations or command robots. Y
 - **Loopback by default** — binds `127.0.0.1`; serving other machines is an explicit `host=` choice
 - **Multi-client** — multiple browser tabs viewing the same simulation
 - **Scene report** — `viewer.scene_report()` lists every body, geom, and site path and every element not rendered, with the reason
-- **Materials** — colors, transparency, and textured meshes, under Viser's default lighting
+- **Geometry and materials** — every MuJoCo primitive, planes, and meshes, with MuJoCo's color, transparency, and 2D-texture rules (see below)
 
 ## Installation
 
@@ -129,6 +129,16 @@ viewer.open()
 viewer = MujocoViewer(model, show_visibility=False)
 ```
 
+## How MuJoCo geometry is converted
+
+Each rule follows MuJoCo's own visualizer, and the end-to-end check compares the result with it.
+
+- **Types**: box, sphere, cylinder, capsule, ellipsoid, plane, and mesh render. Height fields and SDFs do not and are listed in `scene_report()["unsupported"]`.
+- **Color**: a material's rgba applies only while the geom's rgba is MuJoCo's default `0.5 0.5 0.5 1`; an explicit geom rgba wins.
+- **Filtering**: a geom whose resolved alpha is 0 is not drawn (`filtered` in the report). Geom groups 0–2 are visible and 3–5 hidden by default, as in MuJoCo; the Visibility panel changes that.
+- **Textures**: 2D textures render on meshes with texture coordinates and on planes. Planes honor the material's `texrepeat` and `texuniform`; meshes honor `texrepeat` with MuJoCo 3.12 or newer. MuJoCo 3.12 changed its renderer's texture layout (mesh `texrepeat`, plane tiling origin), and mj_viser follows the installed release. Textures on other geom types, and cube or skybox textures, are not drawn; the geom keeps its base color and the report lists it.
+- **Infinite planes** (size 0) render as a square of half-size 50 m, noted in `scene_report()["diagnostics"]`.
+
 ## Compatibility
 
 | | Supported |
@@ -161,7 +171,6 @@ uv run python examples/custom_panel.py mujoco_menagerie/unitree_g1/scene.xml
 git clone https://github.com/personalrobotics/mj_viser.git
 cd mj_viser
 uv sync --locked --all-extras
-uv run pytest
 uv run ruff check . && uv run ruff format --check .
 uv run mypy src
 ```

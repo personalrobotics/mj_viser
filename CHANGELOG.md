@@ -34,10 +34,19 @@
   (`rendered`, `filtered`, `unsupported`), and every unrendered element (planes and other
   unsupported geom types, site shapes, lights, cameras, tendons, skins, flexes, skyboxes)
   with a reason.
+- Geometry and material conversion follows MuJoCo's visualizer (#32): planes render,
+  infinite ones as a 50 m square (reported in `diagnostics`); an explicit geom rgba
+  overrides its material's; mesh textures use MuJoCo's per-corner texture coordinates (and
+  `texrepeat` from MuJoCo 3.12, as MuJoCo's renderer does); textured planes honor `texrepeat` and `texuniform`; material alpha is kept on
+  textured meshes. Textures that are not drawn are reported in `unsupported`.
 - `set_hud()` content and `SensorPanel` titles, channel labels, and colors are treated as
   text: markup is escaped instead of rendered (#29).
 
 ### Fixed
+
+- Mesh textures were mapped with per-vertex texture coordinates, scrambling textures on
+  meshes whose texture coordinates are indexed per face corner (#32).
+- A material's rgba replaced an explicit geom rgba (#32).
 
 - No geoms rendered with recent MuJoCo releases (seen with 3.16), whose enums no
   longer compare equal to the numpy ints in `model.geom_type`.
@@ -49,6 +58,9 @@
   and `show_sim_controls` arguments (#30).
 - Geoms are no longer hidden below z = -0.5, and the default ground grid and three
   directional lights are gone; scenes use Viser's default lighting (#31).
+- `mesh_utils.make_capsule_mesh`, `make_ellipsoid_mesh`, and
+  `extract_mujoco_mesh_textured`: capsules and ellipsoids use trimesh primitives, and
+  `extract_mujoco_mesh_corners` replaces the textured extractor (#32).
 - `mj_viser.transforms` (`xmat_to_wxyz`, `mj_pos_to_viser`, `configure_scene`):
   use `viser.transforms.SO3.from_matrix(xmat.reshape(3, 3)).wxyz` (#27).
 - The unused `plotly` dependency (#27).
