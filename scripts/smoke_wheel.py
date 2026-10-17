@@ -515,7 +515,7 @@ def texture_scenario() -> dict[str, Any]:
 GRAY_MJCF = """
 <mujoco>
   <asset>
-    <!-- From a file: MuJoCo 3.14 corrupts memory compiling a builtin texture with nchannel 1. -->
+    <!-- From a file: before 3.15, MuJoCo corrupts memory compiling a builtin nchannel 1 texture (3.15 rejects it). -->
     <texture name="gray" type="2d" file="gray.png" nchannel="1"/>
     <material name="gray_m" texture="gray" emission="1"/>
   </asset>
