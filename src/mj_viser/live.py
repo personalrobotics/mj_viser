@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import math
 import time
+import webbrowser
 from typing import Any, Protocol
 
 import mujoco
@@ -114,9 +115,19 @@ class LiveView:
         return self.viewer.is_open
 
     def open(self, open_browser: bool = False) -> str:
-        """Start the viewer and show the simulation's current state. Returns the URL."""
-        url = self.viewer.open(open_browser=open_browser)
-        self.refresh(force=True)
+        """Start the viewer and show the simulation's current state. Returns the URL.
+
+        If showing the first frame fails, the viewer is closed again, releasing its
+        port, and the error propagates.
+        """
+        url = self.viewer.open()
+        try:
+            self.refresh(force=True)
+        except BaseException:
+            self.viewer.close()
+            raise
+        if open_browser:
+            webbrowser.open(url)
         return url
 
     def close(self) -> None:
