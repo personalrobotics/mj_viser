@@ -162,7 +162,7 @@ Each rule follows MuJoCo's own visualizer, and the end-to-end check compares the
 | trimesh | `>=3.21.7` |
 | Pillow | `>=9.2` |
 
-CI runs the same end-to-end check from a clean wheel install against the locked versions (`uv.lock`) and the newest allowed releases on every supported Python, and against every declared minimum on Python 3.11. It tests the exact wheel it builds and uploads, together with each run's report and recording.
+CI runs the same end-to-end check from a clean wheel install, in parallel jobs, on the exact wheel it builds and uploads together with each run's report and recording: the locked versions (`uv.lock`) on every supported Python, every declared minimum on Python 3.11, and the newest allowed releases (on Python 3.14 for pull requests; on every Python for `main` and a nightly run). It renders public robots from MuJoCo Menagerie (`trossen_wxai`, `robotiq_2f85`, `unitree_go1`) at a pinned commit.
 
 ## Examples
 
