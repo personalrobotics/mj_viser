@@ -32,13 +32,20 @@
   client's click no longer replaces another's.
 - `viewer.scene_report()` (#31) returns every body, geom, and site path, geom status
   (`rendered`, `filtered`, `unsupported`), and every unrendered element (planes and other
-  unsupported geom types, site shapes, lights, cameras, tendons, skins, flexes, skyboxes)
+  unsupported geom types, lights, cameras, tendons, skins, flexes, skyboxes)
   with a reason.
 - Geometry and material conversion follows MuJoCo's visualizer (#32): planes render,
   infinite ones as a 50 m square (reported in `diagnostics`); an explicit geom rgba
   overrides its material's; mesh textures use MuJoCo's per-corner texture coordinates (and
   `texrepeat` from MuJoCo 3.12, as MuJoCo's renderer does); textured planes honor `texrepeat` and `texuniform`; material alpha is kept on
   textured meshes. Textures that are not drawn are reported in `unsupported`.
+- Sites render as their MuJoCo shapes beneath their bodies, with geom color rules (#23).
+- Geom and site group visibility is viewer state (#23): `set_visible_groups(geoms=…,
+  sites=…)` and `visible_groups()`, MuJoCo's defaults (groups 0–2 shown), and per-group
+  checkboxes for both kinds in the Visibility panel. Groups now apply even with
+  `show_visibility=False`, which previously showed every group.
+- `scene_report()["coverage"]` counts every geom, site, light, camera, tendon, skin, and
+  flex as rendered, filtered, or unsupported (#23).
 - `set_hud()` content and `SensorPanel` titles, channel labels, and colors are treated as
   text: markup is escaped instead of rendered (#29).
 
