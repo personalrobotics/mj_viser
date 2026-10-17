@@ -132,15 +132,13 @@ class MujocoViewer:
             content: Text to display. It is shown literally: markup is escaped, never rendered.
             position: One of "top-left", "top-right", "bottom-left",
                 "bottom-right", "top", "bottom".
+
+        Raises:
+            ValueError: If ``position`` is not one of those.
         """
-        css_pos = {
-            "top-left": "top:8px;left:8px;",
-            "top-right": "top:8px;right:320px;",
-            "bottom-left": "bottom:8px;left:8px;",
-            "bottom-right": "bottom:8px;right:320px;",
-            "top": "top:8px;left:50%;transform:translateX(-50%);",
-            "bottom": "bottom:8px;left:50%;transform:translateX(-50%);",
-        }.get(position, "bottom-left:8px;left:8px;")
+        if position not in _HUD_POSITIONS:
+            raise ValueError(f"position must be one of {sorted(_HUD_POSITIONS)}, got {position!r}")
+        css_pos = _HUD_POSITIONS[position]
 
         markup = (
             f'<div style="position:fixed;{css_pos}z-index:1000;'
@@ -325,6 +323,15 @@ class MujocoViewer:
 
 
 _NUM_GROUPS = 6  # MuJoCo's mjNGROUP
+
+_HUD_POSITIONS = {
+    "top-left": "top:8px;left:8px;",
+    "top-right": "top:8px;right:320px;",
+    "bottom-left": "bottom:8px;left:8px;",
+    "bottom-right": "bottom:8px;right:320px;",
+    "top": "top:8px;left:50%;transform:translateX(-50%);",
+    "bottom": "bottom:8px;left:50%;transform:translateX(-50%);",
+}
 
 
 def _validate_groups(kind: str, groups: Iterable[int]) -> set[int]:
