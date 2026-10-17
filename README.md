@@ -138,6 +138,8 @@ viewer.visible_groups()                             # {"geoms": {0, 1, 2, 3}, "s
 viewer = MujocoViewer(model, show_visibility=False)  # no panel; groups still apply
 ```
 
+Group ids are MuJoCo's 0–5; anything else (a float, a string, a bool, or an id out of range) raises `TypeError` or `ValueError` and leaves the current setting unchanged.
+
 ## How MuJoCo geometry is converted
 
 Each rule follows MuJoCo's own visualizer, and the end-to-end check compares the result with it.
