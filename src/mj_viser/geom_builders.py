@@ -8,8 +8,11 @@ places it at the geom's local pose. The rules follow MuJoCo's own visualizer:
 
 - Color: a material's rgba replaces the geom's only while the geom's rgba is
   MuJoCo's default ``(0.5, 0.5, 0.5, 1)``.
-- Textures: 2D RGB textures render on meshes with texture coordinates and on
-  planes, and ``(0, 0)`` is the first texel row and column, as in MuJoCo and glTF.
+- Textures: 2D textures in a material's ``rgb`` role render on meshes with texture
+  coordinates and on planes, and ``(0, 0)`` is the first texel row and column, as
+  in MuJoCo and glTF. Like MuJoCo's classic renderer, only 3- and 4-channel
+  textures are drawn, a texture's alpha matters only when the geom is transparent,
+  and other material roles (``rgba``, ``emissive``, ``normal``, ...) are not drawn.
   Plane coordinates are scaled by the material's ``texrepeat`` (also by the
   half-size when ``texuniform`` is set). Mesh coordinates are scaled by
   ``texrepeat`` only with MuJoCo 3.12 or newer, and before 3.12 plane textures are
@@ -46,7 +49,8 @@ def geom_rgba(model: mujoco.MjModel, geom_id: int) -> npt.NDArray[np.float64]:
     """The rgba MuJoCo draws a geom with, after material resolution."""
     mat_id = model.geom_matid[geom_id]
     rgba = model.geom_rgba[geom_id]
-    if mat_id >= 0 and np.allclose(rgba, DEFAULT_GEOM_RGBA):
+    # Exact comparison, as MuJoCo does: a near-default explicit color is still explicit.
+    if mat_id >= 0 and np.array_equal(rgba, DEFAULT_GEOM_RGBA):
         rgba = model.mat_rgba[mat_id]
     return np.asarray(rgba, dtype=np.float64)
 
@@ -64,6 +68,8 @@ def unrendered_texture_reason(model: mujoco.MjModel, geom_id: int) -> str | None
     geom_type = int(model.geom_type[geom_id])
     if model.tex_type[tex_id] != mujoco.mjtTexture.mjTEXTURE_2D:
         return "only 2D textures are rendered; base color used"
+    if (channels := int(model.tex_nchannel[tex_id])) not in (3, 4):
+        return f"{channels}-channel textures are not rendered (MuJoCo's classic renderer skips them); base color used"
     if geom_type not in _TEXTURED_TYPES:
         type_name = mujoco.mjtGeom(geom_type).name.removeprefix("mjGEOM_").lower()
         return f"textures on {type_name} geoms are not rendered; base color used"

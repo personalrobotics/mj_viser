@@ -128,6 +128,20 @@ def build_scene_report(model: mujoco.MjModel) -> dict[str, Any]:
         for i in range(count):
             unsupported.append({"kind": kind, "id": i, "name": _name(model, obj, i), "reason": reason})
 
+    rgb_role = int(mujoco.mjtTextureRole.mjTEXROLE_RGB)
+    for mat in range(model.nmat):
+        for role in range(model.mat_texid.shape[1]):
+            if role != rgb_role and model.mat_texid[mat, role] >= 0:
+                role_name = mujoco.mjtTextureRole(role).name.removeprefix("mjTEXROLE_").lower()
+                unsupported.append(
+                    {
+                        "kind": "material-texture",
+                        "id": mat,
+                        "name": _name(model, mujoco.mjtObj.mjOBJ_MATERIAL, mat),
+                        "reason": f"{role_name} texture role is not rendered; only the rgb role is, as in MuJoCo",
+                    }
+                )
+
     for t in range(model.ntex):
         if model.tex_type[t] == mujoco.mjtTexture.mjTEXTURE_SKYBOX:
             name = _name(model, mujoco.mjtObj.mjOBJ_TEXTURE, t)
