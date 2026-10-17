@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `LiveView` follows a running simulation through a read-only render source, such as
+  ssrobot's `render_handle(ctx)`, without importing ssrobot (#28). `refresh()` captures
+  and renders at most `max_rate_hz` times a second and never raises because the view
+  closed or a browser disconnected; `expected_world` refuses a source for another scene;
+  a source that reports `stale_render` or `not_open`, or a frame from another scene,
+  leaves the view `stale`. The HUD shows simulation time and scene revision.
+
 ## 0.2.0 — 2026-10-17
 
 ### Changed

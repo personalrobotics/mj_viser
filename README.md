@@ -19,6 +19,7 @@ mj_viser renders MuJoCo state; it does not step simulations or command robots. Y
 - **Body-frame scene** — one Viser frame per MuJoCo body, with geoms and sites beneath it at stable, unique paths
 - **Click-to-select** — click any geom to show its body name, to that browser only; the label follows the object
 - **Sites** — MuJoCo sites drawn as their shapes, beneath their bodies
+- **Live view** — `LiveView` follows a running simulation (for example ssrobot) without being able to affect it
 - **Visibility groups** — show or hide MuJoCo geom and site groups, from the panel or `set_visible_groups()`
 - **Loopback by default** — binds `127.0.0.1`; serving other machines is an explicit `host=` choice
 - **Multi-client** — multiple browser tabs viewing the same simulation
@@ -57,6 +58,27 @@ viewer.close()                     # releases the port; open() again to reuse th
 ```
 
 `with MujocoViewer(model) as viewer:` opens on entry and closes on exit. `update()` recomputes kinematics on its copy, so setting `qpos` alone (for example when replaying a trace) is enough. Panels read that copy as `viewer.data`.
+
+### Follow a running simulation (ssrobot)
+
+`LiveView` follows a simulation through a read-only render source: an object that owns its own copy of the model and state and refreshes it only when asked. ssrobot's `render_handle(ctx)` is one; mj_viser does not import ssrobot, and any object with `model`, `data`, `world`, and `capture()` works.
+
+```python
+from ssrobot.mujoco import render_handle
+from mj_viser import LiveView
+
+view = LiveView(render_handle(ctx), max_rate_hz=30)
+print(view.open())
+while running:
+    ctx.step()          # ssrobot owns time and stepping
+    view.refresh()      # captures and renders, at most 30 times a second
+view.close()            # the simulation keeps running
+```
+
+- Nothing the viewer does reaches the simulation: the handle holds copies, and traces are byte-identical with and without a view attached.
+- `refresh()` never raises because the view was closed or a browser went away, so it cannot stop your loop.
+- The HUD shows the simulation's time and scene revision. `expected_world=` refuses a source for any other scene.
+- Attach and detach freely: make a new view with a new `render_handle(ctx)`. After the simulation reopens, an old view goes `stale` and renders nothing more.
 
 ### Sensor plots
 

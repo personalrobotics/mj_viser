@@ -1,0 +1,105 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
+"""LiveView's contract with any render source, without a robot runtime.
+
+A stand-in source behaves like ssrobot's render handle: its own model and data copies,
+a scene identity, and capture() that copies the "simulation" state in. The checks:
+frames are rendered and coalesced to max_rate_hz; refresh never raises once the view is
+closed; a source's stale error stops the view, while any other error propagates; a scene
+change stops it; and bad arguments are refused before anything renders.
+"""
+
+from __future__ import annotations
+
+import copy
+import time
+from dataclasses import dataclass
+from typing import Any
+
+import mujoco
+import numpy as np
+
+import mj_viser
+from e2e.fixtures import expect_raises
+
+
+@dataclass(frozen=True)
+class _Stamp:
+    time_ns: int
+
+
+@dataclass(frozen=True)
+class _Frame:
+    time: _Stamp
+    revision: int
+    world: str
+
+
+class _SourceError(Exception):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+class _Source:
+    """A render source over a simulation it owns, like ssrobot's RenderHandle."""
+
+    def __init__(self, model: mujoco.MjModel) -> None:
+        self._sim_model = model
+        self.sim = mujoco.MjData(model)
+        self.model = copy.deepcopy(model)
+        self.data = mujoco.MjData(self.model)
+        self.world = "scene-a"
+        self.fail_with: Exception | None = None
+        self.next_world: str | None = None
+
+    def capture(self) -> _Frame:
+        if self.fail_with is not None:
+            raise self.fail_with
+        mujoco.mj_copyData(self.data, self._sim_model, self.sim)
+        return _Frame(_Stamp(int(self.sim.time * 1e9)), 0, self.next_world or self.world)
+
+
+def check_live_view(model: mujoco.MjModel) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    source = _Source(model)
+    out["other_scene"] = expect_raises(ValueError, lambda: mj_viser.LiveView(source, expected_world="scene-b"))
+    out["bad_rate"] = expect_raises(ValueError, lambda: mj_viser.LiveView(source, max_rate_hz=0))
+
+    view = mj_viser.LiveView(source, max_rate_hz=1.0, port=0)
+    if view.refresh() is not None:
+        raise SystemExit("a closed view rendered")
+    view.open()  # renders the current state once
+    source.sim.qpos[0] = 0.4
+    if view.refresh() is not None:
+        raise SystemExit("a refresh within 1/max_rate_hz of the last frame was not coalesced")
+    if view.refresh(force=True) is None or not np.isclose(view.viewer.data.qpos[0], 0.4):
+        raise SystemExit("a forced refresh did not render the simulation's state")
+    time.sleep(1.05)
+    source.sim.qpos[0] = 0.8
+    if view.refresh() is None or not np.isclose(view.viewer.data.qpos[0], 0.8):
+        raise SystemExit("a refresh after 1/max_rate_hz did not render")
+    out["coalesced_to_max_rate"] = True
+
+    source.fail_with = RuntimeError("a programming error in the source")
+    out["other_errors_propagate"] = expect_raises(RuntimeError, lambda: view.refresh(force=True))
+    source.fail_with = _SourceError("stale_render")
+    if view.refresh(force=True) is not None or view.stale != "stale_render":
+        raise SystemExit(f"a stale source left the view {view.stale!r}")
+    if view.refresh(force=True) is not None:
+        raise SystemExit("a stale view rendered again")
+    view.close()
+    if view.refresh(force=True) is not None:
+        raise SystemExit("refresh after close rendered")
+    out["stale_source"] = view.stale
+
+    changed = _Source(model)
+    view = mj_viser.LiveView(changed, max_rate_hz=None, port=0)
+    view.open()
+    changed.next_world = "scene-b"
+    if view.refresh() is not None or view.stale != "world_changed":
+        raise SystemExit(f"a frame from another scene left the view {view.stale!r}")
+    view.close()
+    out["scene_change"] = "world_changed"
+    return out
