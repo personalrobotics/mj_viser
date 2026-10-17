@@ -45,14 +45,21 @@ _MUJOCO_3_12 = tuple(int(x) for x in mujoco.__version__.split(".")[:2]) >= (3, 1
 _TEXTURED_TYPES = {int(mujoco.mjtGeom.mjGEOM_MESH), int(mujoco.mjtGeom.mjGEOM_PLANE)}
 
 
-def geom_rgba(model: mujoco.MjModel, geom_id: int) -> npt.NDArray[np.float64]:
-    """The rgba MuJoCo draws a geom with, after material resolution."""
-    mat_id = model.geom_matid[geom_id]
-    rgba = model.geom_rgba[geom_id]
+def _resolved_rgba(model: mujoco.MjModel, rgba: npt.NDArray[np.floating], mat_id: int) -> npt.NDArray[np.float64]:
     # Exact comparison, as MuJoCo does: a near-default explicit color is still explicit.
     if mat_id >= 0 and np.array_equal(rgba, DEFAULT_GEOM_RGBA):
         rgba = model.mat_rgba[mat_id]
     return np.asarray(rgba, dtype=np.float64)
+
+
+def geom_rgba(model: mujoco.MjModel, geom_id: int) -> npt.NDArray[np.float64]:
+    """The rgba MuJoCo draws a geom with, after material resolution."""
+    return _resolved_rgba(model, model.geom_rgba[geom_id], int(model.geom_matid[geom_id]))
+
+
+def site_rgba(model: mujoco.MjModel, site_id: int) -> npt.NDArray[np.float64]:
+    """The rgba MuJoCo draws a site with; sites resolve materials like geoms."""
+    return _resolved_rgba(model, model.site_rgba[site_id], int(model.site_matid[site_id]))
 
 
 def _texture_id(model: mujoco.MjModel, geom_id: int) -> int:
@@ -93,13 +100,11 @@ def _opacity(rgba: npt.NDArray[np.float64]) -> float | None:
 def _simple_mesh(
     scene: viser.SceneApi,
     name: str,
-    model: mujoco.MjModel,
-    geom_id: int,
+    rgba: npt.NDArray[np.float64],
     vertices: npt.NDArray[np.floating],
     faces: npt.NDArray[np.integer],
     side: str = "front",
 ) -> viser.MeshHandle:
-    rgba = geom_rgba(model, geom_id)
     return scene.add_mesh_simple(
         name,
         vertices=np.asarray(vertices, dtype=np.float32),
@@ -146,48 +151,40 @@ def _textured_mesh(
     return scene.add_mesh_trimesh(name, mesh=mesh)
 
 
-def build_box(scene: viser.SceneApi, name: str, geom_id: int, model: mujoco.MjModel) -> viser.BoxHandle:
-    size = model.geom_size[geom_id]
-    rgba = geom_rgba(model, geom_id)
-    return scene.add_box(
-        name,
-        dimensions=(float(size[0] * 2), float(size[1] * 2), float(size[2] * 2)),
-        color=_color(rgba),
-        opacity=_opacity(rgba),
+PRIMITIVE_TYPES = {
+    int(mujoco.mjtGeom.mjGEOM_SPHERE),
+    int(mujoco.mjtGeom.mjGEOM_CAPSULE),
+    int(mujoco.mjtGeom.mjGEOM_ELLIPSOID),
+    int(mujoco.mjtGeom.mjGEOM_CYLINDER),
+    int(mujoco.mjtGeom.mjGEOM_BOX),
+}
+
+
+def build_primitive(
+    scene: viser.SceneApi, name: str, geom_type: int, size: npt.NDArray[np.floating], rgba: npt.NDArray[np.float64]
+) -> Any:
+    """A MuJoCo primitive shape (geom or site) from its type, size parameters, and rgba."""
+    color, opacity = _color(rgba), _opacity(rgba)
+    if geom_type == mujoco.mjtGeom.mjGEOM_BOX:
+        dims = (float(size[0] * 2), float(size[1] * 2), float(size[2] * 2))
+        return scene.add_box(name, dimensions=dims, color=color, opacity=opacity)
+    if geom_type == mujoco.mjtGeom.mjGEOM_SPHERE:
+        return scene.add_icosphere(name, radius=float(size[0]), color=color, opacity=opacity)
+    if geom_type == mujoco.mjtGeom.mjGEOM_CYLINDER:
+        return scene.add_cylinder(name, radius=float(size[0]), height=float(size[1] * 2), color=color, opacity=opacity)
+    if geom_type == mujoco.mjtGeom.mjGEOM_CAPSULE:
+        capsule = trimesh.creation.capsule(height=float(2 * size[1]), radius=float(size[0]), count=[24, 24])
+        return _simple_mesh(scene, name, rgba, capsule.vertices, capsule.faces)
+    if geom_type == mujoco.mjtGeom.mjGEOM_ELLIPSOID:
+        sphere = trimesh.creation.icosphere(subdivisions=3, radius=1.0)
+        return _simple_mesh(scene, name, rgba, sphere.vertices * np.asarray(size[:3]), sphere.faces)
+    raise ValueError(f"not a primitive geom type: {geom_type}")
+
+
+def _build_geom_primitive(scene: viser.SceneApi, name: str, geom_id: int, model: mujoco.MjModel) -> Any:
+    return build_primitive(
+        scene, name, int(model.geom_type[geom_id]), model.geom_size[geom_id], geom_rgba(model, geom_id)
     )
-
-
-def build_sphere(scene: viser.SceneApi, name: str, geom_id: int, model: mujoco.MjModel) -> viser.IcosphereHandle:
-    rgba = geom_rgba(model, geom_id)
-    return scene.add_icosphere(
-        name,
-        radius=float(model.geom_size[geom_id][0]),
-        color=_color(rgba),
-        opacity=_opacity(rgba),
-    )
-
-
-def build_cylinder(scene: viser.SceneApi, name: str, geom_id: int, model: mujoco.MjModel) -> viser.CylinderHandle:
-    size = model.geom_size[geom_id]
-    rgba = geom_rgba(model, geom_id)
-    return scene.add_cylinder(
-        name,
-        radius=float(size[0]),
-        height=float(size[1] * 2),
-        color=_color(rgba),
-        opacity=_opacity(rgba),
-    )
-
-
-def build_capsule(scene: viser.SceneApi, name: str, geom_id: int, model: mujoco.MjModel) -> viser.MeshHandle:
-    radius, half_length = model.geom_size[geom_id][:2]
-    capsule = trimesh.creation.capsule(height=float(2 * half_length), radius=float(radius), count=[24, 24])
-    return _simple_mesh(scene, name, model, geom_id, capsule.vertices, capsule.faces)
-
-
-def build_ellipsoid(scene: viser.SceneApi, name: str, geom_id: int, model: mujoco.MjModel) -> viser.MeshHandle:
-    sphere = trimesh.creation.icosphere(subdivisions=3, radius=1.0)
-    return _simple_mesh(scene, name, model, geom_id, sphere.vertices * model.geom_size[geom_id], sphere.faces)
 
 
 def build_plane(
@@ -197,7 +194,7 @@ def build_plane(
     vertices = np.array([[-half_x, -half_y, 0], [half_x, -half_y, 0], [half_x, half_y, 0], [-half_x, half_y, 0]])
     faces = np.array([[0, 1, 2], [0, 2, 3]])
     if not _renders_texture(model, geom_id):
-        return _simple_mesh(scene, name, model, geom_id, vertices, faces)
+        return _simple_mesh(scene, name, geom_rgba(model, geom_id), vertices, faces)
     mat_id = model.geom_matid[geom_id]
     repeat = model.mat_texrepeat[mat_id] * (np.array([half_x, half_y]) if model.mat_texuniform[mat_id] else 1.0)
     across = np.column_stack([vertices[:, 0] / (2 * half_x), -vertices[:, 1] / (2 * half_y)])  # in [-0.5, 0.5]
@@ -217,15 +214,11 @@ def build_mesh(
         return _textured_mesh(scene, name, model, geom_id, vertices, faces, texcoords)
     vertices, faces = extract_mujoco_mesh(model, mesh_id)
     # Both sides: STL meshes may have inverted normals.
-    return _simple_mesh(scene, name, model, geom_id, vertices, faces, side="double")
+    return _simple_mesh(scene, name, geom_rgba(model, geom_id), vertices, faces, side="double")
 
 
 GEOM_BUILDERS: dict[int, Callable[[viser.SceneApi, str, int, mujoco.MjModel], Any]] = {
     int(mujoco.mjtGeom.mjGEOM_PLANE): build_plane,
-    int(mujoco.mjtGeom.mjGEOM_SPHERE): build_sphere,
-    int(mujoco.mjtGeom.mjGEOM_CAPSULE): build_capsule,
-    int(mujoco.mjtGeom.mjGEOM_ELLIPSOID): build_ellipsoid,
-    int(mujoco.mjtGeom.mjGEOM_CYLINDER): build_cylinder,
-    int(mujoco.mjtGeom.mjGEOM_BOX): build_box,
+    **{t: _build_geom_primitive for t in PRIMITIVE_TYPES},
     int(mujoco.mjtGeom.mjGEOM_MESH): build_mesh,
 }

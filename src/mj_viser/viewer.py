@@ -10,7 +10,7 @@ import socket
 import sys
 import threading
 import webbrowser
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 import mujoco
@@ -56,7 +56,8 @@ class MujocoViewer:
             port: Port to bind, or 0 for an OS-assigned port. A requested
                 port that is unavailable raises instead of moving to another.
             label: Heading shown at the top of the GUI panel.
-            show_visibility: Show the geom-group visibility panel.
+            show_visibility: Show the Visibility panel (geom- and site-group toggles).
+                Group visibility applies either way; see :meth:`set_visible_groups`.
         """
         self._model = model
         self._host = host
@@ -74,6 +75,8 @@ class MujocoViewer:
         self._server: viser.ViserServer | None = None
         self._scene_mgr: SceneManager | None = None
         self._gui_mgr: GuiManager | None = None
+        # Visible MuJoCo groups per kind. MuJoCo's own defaults: groups 0-2 shown, 3-5 hidden.
+        self._visible: dict[str, set[int]] = {"geoms": {0, 1, 2}, "sites": {0, 1, 2}}
         self._huds: dict[str, viser.GuiHtmlHandle] = {}
 
     @property
@@ -162,6 +165,37 @@ class MujocoViewer:
         self._select_callbacks.append(callback)
         if self._scene_mgr is not None:
             self._scene_mgr.on_select(callback)
+
+    def set_visible_groups(self, *, geoms: Iterable[int] | None = None, sites: Iterable[int] | None = None) -> None:
+        """Choose which MuJoCo geom groups and site groups are shown (others are hidden).
+
+        Defaults to MuJoCo's own: groups 0-2 shown and 3-5 hidden, for both kinds.
+        Arguments left as None keep their current setting. Works whether or not the
+        viewer is open and whether or not the Visibility panel is shown; the panel's
+        checkboxes follow.
+        """
+        with self._lock:
+            if geoms is not None:
+                self._visible["geoms"] = {int(g) for g in geoms}
+            if sites is not None:
+                self._visible["sites"] = {int(s) for s in sites}
+            self._apply_visibility()
+
+    def visible_groups(self) -> dict[str, set[int]]:
+        """The MuJoCo groups currently shown, as ``{"geoms": {...}, "sites": {...}}``."""
+        with self._lock:
+            return {kind: set(groups) for kind, groups in self._visible.items()}
+
+    def _set_group(self, kind: str, group: int, visible: bool) -> None:
+        with self._lock:
+            (self._visible[kind].add if visible else self._visible[kind].discard)(group)
+            self._apply_visibility()
+
+    def _apply_visibility(self) -> None:
+        if self._scene_mgr is not None:
+            self._scene_mgr.update_visibility(self._visible["geoms"], self._visible["sites"])
+        if self._gui_mgr is not None:
+            self._gui_mgr.show(self._visible)
 
     def scene_report(self) -> dict[str, Any]:
         """How every MuJoCo visual element maps to the scene, as plain JSON-ready data.
@@ -271,10 +305,8 @@ class MujocoViewer:
             self._scene_mgr.build_scene()
 
             if self._show_visibility:
-                self._gui_mgr = GuiManager(self._server, self._model)
-                scene_mgr, gui_mgr = self._scene_mgr, self._gui_mgr
-                scene_mgr.update_visibility(gui_mgr.visible_groups())
-                gui_mgr.on_visibility_change(lambda: scene_mgr.update_visibility(gui_mgr.visible_groups()))
+                self._gui_mgr = GuiManager(self._server, self._model, self._visible, self._set_group)
+            self._apply_visibility()
 
         for panel in self._panels:
             panel.setup(self._server.gui, self)

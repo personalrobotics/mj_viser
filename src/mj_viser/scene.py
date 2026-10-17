@@ -14,7 +14,15 @@ import mujoco
 import numpy as np
 import viser
 
-from mj_viser.geom_builders import GEOM_BUILDERS, INFINITE_PLANE_HALF_SIZE, geom_rgba, unrendered_texture_reason
+from mj_viser.geom_builders import (
+    GEOM_BUILDERS,
+    INFINITE_PLANE_HALF_SIZE,
+    PRIMITIVE_TYPES,
+    build_primitive,
+    geom_rgba,
+    site_rgba,
+    unrendered_texture_reason,
+)
 
 _ROOT = "/mujoco"
 _UNSAFE = re.compile(r"[^A-Za-z0-9_.-]")
@@ -45,14 +53,18 @@ def body_paths(model: mujoco.MjModel) -> list[str]:
 def build_scene_report(model: mujoco.MjModel) -> dict[str, Any]:
     """Machine-readable account of how every MuJoCo visual element maps to the scene.
 
-    Each body, geom, and site has its Viser path. Geoms are ``rendered``,
+    Each body, geom, and site has its Viser path. Geoms and sites are ``rendered``,
     ``filtered`` (with the model state that hides them), or ``unsupported``; every
     element mj_viser does not render appears in ``unsupported`` with a reason, and
-    every rendering approximation appears in ``diagnostics``.
+    every rendering approximation appears in ``diagnostics``. ``coverage`` counts,
+    per kind of visual element, how many the model has and what became of each.
 
-    Filtering follows MuJoCo's visualizer: a geom whose resolved rgba has alpha 0
-    is never drawn. Geom groups are not filtered here; they are viewer visibility
-    state (groups 0-2 shown by default, as in MuJoCo).
+    Filtering follows MuJoCo's visualizer: a geom or site whose resolved rgba has
+    alpha 0 is never drawn. Groups are not filtered here; they are viewer
+    visibility state (see ``MujocoViewer.set_visible_groups``).
+
+    The report depends only on the model, so it is identical wherever the same
+    model is rendered.
     """
     bodies = body_paths(model)
     report: dict[str, Any] = {"bodies": [], "geoms": [], "sites": [], "unsupported": [], "diagnostics": []}
@@ -106,17 +118,25 @@ def build_scene_report(model: mujoco.MjModel) -> dict[str, Any]:
 
     for s in range(model.nsite):
         name = _name(model, mujoco.mjtObj.mjOBJ_SITE, s)
-        report["sites"].append(
-            {
-                "id": s,
-                "name": name,
-                "path": f"{bodies[model.site_bodyid[s]]}/{_segment('s', s, name)}",
-                "body": int(model.site_bodyid[s]),
-            }
-        )
-        unsupported.append(
-            {"kind": "site", "id": s, "name": name, "reason": "site shapes are not rendered; frame only"}
-        )
+        stype = int(model.site_type[s])
+        type_name = mujoco.mjtGeom(stype).name.removeprefix("mjGEOM_").lower()
+        site: dict[str, Any] = {
+            "id": s,
+            "name": name,
+            "path": f"{bodies[model.site_bodyid[s]]}/{_segment('s', s, name)}",
+            "body": int(model.site_bodyid[s]),
+            "type": type_name,
+            "group": int(model.site_group[s]),
+        }
+        if stype not in PRIMITIVE_TYPES:
+            site["status"] = "unsupported"
+            unsupported.append({"kind": "site", "id": s, "name": name, "reason": f"{type_name} sites are not rendered"})
+        elif site_rgba(model, s)[3] == 0:
+            site["status"] = "filtered"
+            site["reason"] = "rgba alpha is 0"
+        else:
+            site["status"] = "rendered"
+        report["sites"].append(site)
 
     for kind, count, obj, reason in (
         ("light", model.nlight, mujoco.mjtObj.mjOBJ_LIGHT, "MuJoCo lights are not rendered; Viser default lighting"),
@@ -147,6 +167,21 @@ def build_scene_report(model: mujoco.MjModel) -> dict[str, Any]:
             name = _name(model, mujoco.mjtObj.mjOBJ_TEXTURE, t)
             unsupported.append({"kind": "skybox", "id": t, "name": name, "reason": "skybox textures are not rendered"})
 
+    coverage: dict[str, dict[str, int]] = {}
+    for kind in ("geom", "site"):
+        entries = report[f"{kind}s"]
+        coverage[kind] = {"total": len(entries)}
+        for status in ("rendered", "filtered", "unsupported"):
+            coverage[kind][status] = sum(e["status"] == status for e in entries)
+    for kind, count in (
+        ("light", model.nlight),
+        ("camera", model.ncam),
+        ("tendon", model.ntendon),
+        ("skin", model.nskin),
+        ("flex", model.nflex),
+    ):
+        coverage[kind] = {"total": int(count), "rendered": 0, "filtered": 0, "unsupported": int(count)}
+    report["coverage"] = coverage
     return report
 
 
@@ -172,14 +207,13 @@ class SceneManager:
         self._body_frames: dict[int, viser.FrameHandle] = {}
         self._dynamic_bodies = [b["id"] for b in self.report["bodies"] if b["dynamic"]]
         self._geom_handles: dict[int, viser.SceneNodeHandle] = {}
-        self._site_frames: dict[int, viser.FrameHandle] = {}
-        self._hidden_groups: set[int] = set()  # groups toggled off by the user
+        self._site_handles: dict[int, viser.SceneNodeHandle] = {}
         # Per-client selection: client id -> (geom id, that client's label).
         self._selection: dict[int, tuple[int, viser.LabelHandle]] = {}
         self._on_select_callbacks: list[Callable[[int, str], None]] = []
 
     def build_scene(self) -> None:
-        """Create the body frames, geoms, and site frames, and pose them from data."""
+        """Create the body frames, geoms, and sites, and pose them from data."""
         scene = self._server.scene
         scene.set_up_direction("+z")  # match MuJoCo, so positions map 1:1
 
@@ -197,10 +231,15 @@ class SceneManager:
             self._geom_handles[g] = handle
 
         for site in self.report["sites"]:
+            if site["status"] != "rendered":
+                continue
             s = site["id"]
-            self._site_frames[s] = scene.add_frame(
-                site["path"], show_axes=False, position=self._model.site_pos[s], wxyz=self._model.site_quat[s]
+            handle = build_primitive(
+                scene, site["path"], int(self._model.site_type[s]), self._model.site_size[s], site_rgba(self._model, s)
             )
+            handle.position = self._model.site_pos[s]
+            handle.wxyz = self._model.site_quat[s]
+            self._site_handles[s] = handle
 
         self._server.on_client_disconnect(lambda client: self._forget_client(client.client_id))
         # Bodies without joints or mocap never move relative to their parent: pose them once, here.
@@ -225,14 +264,13 @@ class SceneManager:
                 frame.position = local_pos.copy()
                 frame.wxyz = local_quat.copy()
 
-    def update_visibility(self, visible_groups: set[int]) -> None:
-        """Show geoms whose MuJoCo group is in ``visible_groups``; hide the rest."""
-        with self._lock:
-            all_groups = {int(self._model.geom_group[g]) for g in self._geom_handles}
-            self._hidden_groups = all_groups - visible_groups
-            with self._server.atomic():
-                for g, handle in self._geom_handles.items():
-                    handle.visible = int(self._model.geom_group[g]) not in self._hidden_groups
+    def update_visibility(self, geom_groups: set[int], site_groups: set[int]) -> None:
+        """Show geoms and sites whose MuJoCo group is visible for their kind; hide the rest."""
+        with self._lock, self._server.atomic():
+            for g, handle in self._geom_handles.items():
+                handle.visible = int(self._model.geom_group[g]) in geom_groups
+            for s, handle in self._site_handles.items():
+                handle.visible = int(self._model.site_group[s]) in site_groups
 
     def on_select(self, callback: Callable[[int, str], None]) -> None:
         """Register a callback for geom selection: callback(geom_id, body_name)."""
