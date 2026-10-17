@@ -4,7 +4,7 @@
 #
 # Build the mj_viser wheel once (or take MJ_VISER_WHEEL=path/to/wheel, as CI does
 # to test the exact artifact it uploads), install it into one fresh virtualenv per
-# environment, and run the end-to-end check scripts/smoke_wheel.py in each.
+# environment, and run the end-to-end check (scripts/e2e/run.py) in each.
 #
 # Usage: [MJ_VISER_WHEEL=...] scripts/smoke_wheel.sh [OUT_DIR] [ENV...]   (default: dist/smoke latest)
 # ENV:
@@ -70,7 +70,7 @@ for env in "${envs[@]}"; do
 
   mkdir -p "$out/$env"
   # -I: isolated mode, so nothing from the repo checkout shadows the installed wheel.
-  (cd "$work" && "$venv/bin/python" -I "$repo/scripts/smoke_wheel.py" "$out/$env" "$env")
+  (cd "$work" && "$venv/bin/python" -I "$repo/scripts/e2e/run.py" "$out/$env" "$env")
 
   "$venv/bin/python" -I - "$out/$env/smoke_report.json" "$(basename "$wheel")" "$sha" <<'EOF'
 import json, sys
