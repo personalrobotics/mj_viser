@@ -13,11 +13,9 @@ places it at the geom's local pose. The rules follow MuJoCo's own visualizer:
   in MuJoCo and glTF. Like MuJoCo's classic renderer, only 3- and 4-channel
   textures are drawn, a texture's alpha matters only when the geom is transparent,
   and other material roles (``rgba``, ``emissive``, ``normal``, ...) are not drawn.
-  Plane coordinates are scaled by the material's ``texrepeat`` (also by the
-  half-size when ``texuniform`` is set). Mesh coordinates are scaled by
-  ``texrepeat`` only with MuJoCo 3.12 or newer, and before 3.12 plane textures are
-  centered on the plane rather than starting at a corner, matching MuJoCo's own
-  renderer in each release.
+  Mesh and plane coordinates are scaled by the material's ``texrepeat`` (on planes,
+  also by the half-size when ``texuniform`` is set), and plane tiling starts at a
+  corner, as in MuJoCo 3.12 and later.
 - Planes of size 0 (infinite in MuJoCo) render as a square of half-size
   :data:`INFINITE_PLANE_HALF_SIZE`.
 """
@@ -38,10 +36,6 @@ DEFAULT_GEOM_RGBA = np.array([0.5, 0.5, 0.5, 1.0])
 INFINITE_PLANE_HALF_SIZE = 50.0
 
 _RGB_ROLE = int(mujoco.mjtTextureRole.mjTEXROLE_RGB)
-# MuJoCo 3.12.0 changed its renderer's texture layout: before it, texrepeat is ignored
-# on mesh texture coordinates and plane textures are centered on the plane; from it,
-# mesh coordinates are scaled by texrepeat and plane textures start at a corner.
-_MUJOCO_3_12 = tuple(int(x) for x in mujoco.__version__.split(".")[:2]) >= (3, 12)
 _TEXTURED_TYPES = {int(mujoco.mjtGeom.mjGEOM_MESH), int(mujoco.mjtGeom.mjGEOM_PLANE)}
 
 
@@ -198,7 +192,7 @@ def build_plane(
     mat_id = model.geom_matid[geom_id]
     repeat = model.mat_texrepeat[mat_id] * (np.array([half_x, half_y]) if model.mat_texuniform[mat_id] else 1.0)
     across = np.column_stack([vertices[:, 0] / (2 * half_x), -vertices[:, 1] / (2 * half_y)])  # in [-0.5, 0.5]
-    texcoords = (across + 0.5) * repeat if _MUJOCO_3_12 else across * repeat + 0.5
+    texcoords = (across + 0.5) * repeat
     return _textured_mesh(scene, name, model, geom_id, vertices, faces, texcoords)
 
 
@@ -209,9 +203,8 @@ def build_mesh(
     if _renders_texture(model, geom_id):
         vertices, faces, texcoords = extract_mujoco_mesh_corners(model, mesh_id)
         assert texcoords is not None
-        if _MUJOCO_3_12:
-            texcoords = texcoords * model.mat_texrepeat[model.geom_matid[geom_id]]
-        return _textured_mesh(scene, name, model, geom_id, vertices, faces, texcoords)
+        repeat = model.mat_texrepeat[model.geom_matid[geom_id]]
+        return _textured_mesh(scene, name, model, geom_id, vertices, faces, texcoords * repeat)
     vertices, faces = extract_mujoco_mesh(model, mesh_id)
     # Both sides: STL meshes may have inverted normals.
     return _simple_mesh(scene, name, geom_rgba(model, geom_id), vertices, faces, side="double")
