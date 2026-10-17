@@ -31,6 +31,7 @@ import mj_viser  # noqa: E402
 from e2e.clients import panel_free_groups, two_client_selection  # noqa: E402
 from e2e.fixtures import MJCF, source_states  # noqa: E402
 from e2e.lifecycle import check_lifecycle  # noqa: E402
+from e2e.live_view import check_live_view  # noqa: E402
 from e2e.package_checks import check_package  # noqa: E402
 from e2e.rendering import two_states  # noqa: E402
 from e2e.robots import robot_scenario  # noqa: E402
@@ -51,6 +52,7 @@ def main(out_dir: str, env_label: str) -> None:
     report["texture_oracle"] = texture_scenario()
     report["panel_free_groups"] = panel_free_groups(model)
     check_lifecycle(model, sources, report)
+    report["live_view"] = check_live_view(model)
 
     if robots := os.environ.get("MJ_VISER_ROBOT_XML"):
         report["robots"] = [robot_scenario(path, out_dir) for path in robots.split(os.pathsep)]
