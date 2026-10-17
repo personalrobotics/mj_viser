@@ -14,7 +14,7 @@ import mujoco
 import numpy as np
 import viser
 
-from mj_viser.geom_builders import GEOM_BUILDERS
+from mj_viser.geom_builders import GEOM_BUILDERS, INFINITE_PLANE_HALF_SIZE, geom_rgba, unrendered_texture_reason
 
 _ROOT = "/mujoco"
 _UNSAFE = re.compile(r"[^A-Za-z0-9_.-]")
@@ -42,21 +42,21 @@ def body_paths(model: mujoco.MjModel) -> list[str]:
     return paths
 
 
-def _geom_alpha(model: mujoco.MjModel, geom_id: int) -> float:
-    mat_id = model.geom_matid[geom_id]
-    return float(model.mat_rgba[mat_id][3] if mat_id >= 0 else model.geom_rgba[geom_id][3])
-
-
 def build_scene_report(model: mujoco.MjModel) -> dict[str, Any]:
     """Machine-readable account of how every MuJoCo visual element maps to the scene.
 
     Each body, geom, and site has its Viser path. Geoms are ``rendered``,
     ``filtered`` (with the model state that hides them), or ``unsupported``; every
-    element mj_viser does not render appears in ``unsupported`` with a reason.
+    element mj_viser does not render appears in ``unsupported`` with a reason, and
+    every rendering approximation appears in ``diagnostics``.
+
+    Filtering follows MuJoCo's visualizer: a geom whose resolved rgba has alpha 0
+    is never drawn. Geom groups are not filtered here; they are viewer visibility
+    state (groups 0-2 shown by default, as in MuJoCo).
     """
     bodies = body_paths(model)
-    report: dict[str, Any] = {"bodies": [], "geoms": [], "sites": [], "unsupported": []}
-    unsupported = report["unsupported"]
+    report: dict[str, Any] = {"bodies": [], "geoms": [], "sites": [], "unsupported": [], "diagnostics": []}
+    unsupported, diagnostics = report["unsupported"], report["diagnostics"]
 
     for b, path in enumerate(bodies):
         report["bodies"].append(
@@ -86,11 +86,22 @@ def build_scene_report(model: mujoco.MjModel) -> dict[str, Any]:
         if gtype not in GEOM_BUILDERS:
             entry["status"] = "unsupported"
             unsupported.append({"kind": "geom", "id": g, "name": name, "reason": f"{type_name} geoms are not rendered"})
-        elif _geom_alpha(model, g) == 0:
+        elif geom_rgba(model, g)[3] == 0:
             entry["status"] = "filtered"
             entry["reason"] = "rgba alpha is 0"
         else:
             entry["status"] = "rendered"
+            if texture_reason := unrendered_texture_reason(model, g):
+                unsupported.append({"kind": "texture", "id": g, "name": name, "reason": texture_reason})
+            if gtype == mujoco.mjtGeom.mjGEOM_PLANE and 0 in model.geom_size[g][:2]:
+                diagnostics.append(
+                    {
+                        "kind": "geom",
+                        "id": g,
+                        "name": name,
+                        "note": f"infinite plane rendered as a square of half-size {INFINITE_PLANE_HALF_SIZE:g} m",
+                    }
+                )
         report["geoms"].append(entry)
 
     for s in range(model.nsite):
