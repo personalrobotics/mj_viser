@@ -13,7 +13,7 @@ import mujoco
 import numpy as np
 
 import mj_viser
-from e2e.fixtures import MOCAP, STATES, kinematics, state_hash
+from e2e.fixtures import MOCAP, STATES, expect_raises, kinematics, state_hash
 from e2e.oracles import (
     check_against_mujoco_scene,
     check_coverage,
@@ -153,6 +153,7 @@ def two_states(
         if injected:
             raise SystemExit(f"{where} rendered injected markup {sorted(injected)}: {content}")
     report["markup_escaped"] = sorted(markup)
+    report["hud_unknown_position"] = expect_raises(ValueError, lambda: viewer.set_hud("probe", "x", "middle"))
 
     viewer.close()
     if viewer.is_open:

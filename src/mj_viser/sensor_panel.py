@@ -65,7 +65,6 @@ class SensorPanel(PanelBase):
         self._title = title
         self._channels = channels or []
         self._window_seconds = window_seconds
-        self._max_points = max_points
         self._y_label = y_label
         self._aspect = aspect
         self._use_folder = use_folder
