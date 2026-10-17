@@ -148,7 +148,7 @@ Each rule follows MuJoCo's own visualizer, and the end-to-end check compares the
 - **Color**: a material's rgba applies only while the geom's rgba is MuJoCo's default `0.5 0.5 0.5 1`; an explicit geom rgba wins.
 - **Filtering**: a geom or site whose resolved alpha is 0 is not drawn (`filtered` in the report). Groups 0–2 are visible and 3–5 hidden by default, as in MuJoCo; see [Groups](#groups).
 - **Sites**: sphere, capsule, ellipsoid, cylinder, and box sites render with MuJoCo's size, local pose, and color rules (the same material rule as geoms).
-- **Textures**: 2D textures render on meshes with texture coordinates and on planes. Planes honor the material's `texrepeat` and `texuniform`; meshes honor `texrepeat` with MuJoCo 3.12 or newer. MuJoCo 3.12 changed its renderer's texture layout (mesh `texrepeat`, plane tiling origin), and mj_viser follows the installed release. Textures on other geom types, and cube or skybox textures, are not drawn; the geom keeps its base color and the report lists it.
+- **Textures**: 2D textures render on meshes with texture coordinates and on planes. Meshes and planes honor the material's `texrepeat`, and planes also `texuniform`, as MuJoCo's renderer does. Textures on other geom types, and cube or skybox textures, are not drawn; the geom keeps its base color and the report lists it.
 - **Infinite planes** (size 0) render as a square of half-size 50 m, noted in `scene_report()["diagnostics"]`.
 
 ## Compatibility
@@ -156,7 +156,7 @@ Each rule follows MuJoCo's own visualizer, and the end-to-end check compares the
 | | Supported |
 | --- | --- |
 | Python | 3.11–3.14 (3.15 awaits wheels for Viser's `zstandard` dependency) |
-| MuJoCo | `>=3.5` (first release with `mj_copyData` in the Python bindings); locked to 3.14.0, the version ssrobot pins |
+| MuJoCo | `>=3.12` (the texture layout mj_viser reproduces); locked to 3.14.0, the version ssrobot pins |
 | Viser | `>=1.1.1,<1.2` |
 | NumPy | `>=1.24` |
 | trimesh | `>=3.21.7` |

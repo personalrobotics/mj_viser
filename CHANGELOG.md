@@ -18,7 +18,7 @@
 - `viewer.url` brackets IPv6 literals (`http://[::1]:8080`).
 - `close()` is idempotent and releases the port; a closed viewer can be reopened.
   `server`, `url`, and `set_hud` are valid only while open.
-- Requires `mujoco>=3.5` (`mj_copyData` in the Python bindings), `viser>=1.1.1,<1.2`,
+- Requires `mujoco>=3.12` (whose texture layout mj_viser reproduces), `viser>=1.1.1,<1.2`,
   `numpy>=1.24`, `trimesh>=3.21.7`, and `pillow>=9.2` (trimesh and Pillow are imported
   directly and are now declared), on Python 3.11–3.14 (`requires-python = ">=3.11,<3.15"`,
   matching ssrobot's minimum; #29). The lock pins mujoco 3.14.0, the version ssrobot uses.
@@ -36,8 +36,8 @@
   with a reason.
 - Geometry and material conversion follows MuJoCo's visualizer (#32): planes render,
   infinite ones as a 50 m square (reported in `diagnostics`); an explicit geom rgba
-  overrides its material's; mesh textures use MuJoCo's per-corner texture coordinates (and
-  `texrepeat` from MuJoCo 3.12, as MuJoCo's renderer does); textured planes honor `texrepeat` and `texuniform`; material alpha is kept on
+  overrides its material's; mesh textures use MuJoCo's per-corner texture coordinates and
+  `texrepeat`; textured planes honor `texrepeat` and `texuniform`; material alpha is kept on
   textured meshes. Textures that are not drawn are reported in `unsupported`.
 - Sites render as their MuJoCo shapes beneath their bodies, with geom color rules (#23).
 - Geom and site group visibility is viewer state (#23): `set_visible_groups(geoms=…,

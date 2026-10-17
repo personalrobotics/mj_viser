@@ -577,8 +577,8 @@ GRAY_MJCF = """
 def single_channel_texture(gray: np.ndarray) -> dict[str, Any]:
     """A valid 1-channel texture opens, renders in the base color, and is reported.
 
-    MuJoCo's classic renderer does not draw 1-channel textures: recent releases skip
-    the texture (base color shows), and older ones refuse to render the model at all.
+    MuJoCo's classic renderer does not draw 1-channel textures: it skips the texture,
+    so the base color shows.
     """
     buf = io.BytesIO()
     PIL.Image.fromarray(gray, "L").save(buf, format="PNG")
@@ -591,10 +591,7 @@ def single_channel_texture(gray: np.ndarray) -> dict[str, Any]:
             raise SystemExit(f"1-channel texture plane drawn as {type(node).__name__}, not the base color")
         if not any(u["kind"] == "texture" and u["name"] == "gray" for u in viewer.scene_report()["unsupported"]):
             raise SystemExit("1-channel texture missing from unsupported report")
-    try:
-        renderer = mujoco.Renderer(model, 200, 200)
-    except mujoco.FatalError as e:
-        return {"mj_viser": "base color, reported", "mujoco_renderer": f"refuses the model: {e}"}
+    renderer = mujoco.Renderer(model, 200, 200)
     renderer.update_scene(data, camera="top")
     shot = renderer.render()
     renderer.close()
