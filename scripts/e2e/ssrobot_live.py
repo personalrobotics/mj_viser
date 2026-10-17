@@ -11,9 +11,10 @@ For each robot, one deterministic motion (its manipulator's joints moved 0.15 ra
 two-point trajectory, then settled) runs twice under a JSONL trace:
 
 - without a viewer;
-- with a LiveView refreshed every tick, which meanwhile vandalizes the data it holds,
-  keeps a browser connection that never reads, detaches midway, and attaches a new view
-  with a new render handle.
+- with a LiveView refreshed every tick, which meanwhile vandalizes the data it holds.
+  A browser connects and never reads; at tick 100 it disconnects while the view stays
+  open and keeps rendering; at tick 200 the view detaches and a new view attaches with a
+  new render handle.
 
 The two traces must be byte-identical. The viewed run also records a .viser file and
 checks each rendered frame against the runtime's own joint positions. Afterwards a view
@@ -138,12 +139,18 @@ def run(name: str, out: Path, viewed: bool) -> dict[str, Any]:
                     if recorder is not None:
                         recorder.insert_sleep(0.002)
                 _vandalize(view)
+                if ticks == 100:
+                    # The browser disconnects; the same view stays open and keeps rendering.
+                    silent.close()
+                    frames_at_disconnect = frames
                 if not detached and ticks == 200:
+                    if frames - frames_at_disconnect < 100:
+                        raise SystemExit("the view stopped rendering after the browser disconnected")
+                    result["frames_after_browser_disconnect"] = frames - frames_at_disconnect
                     # Detach and attach a new view on a new handle; the runtime keeps going.
                     recording = recorder.serialize()  # the first attachment's recording
                     recorder = None
                     view.close()
-                    silent.close()
                     view = LiveView(render_handle(ctx), max_rate_hz=None, port=0, label=name)
                     view.open()
                     detached = True
@@ -188,6 +195,7 @@ def robot(name: str, out: Path) -> dict[str, Any]:
         "ticks": plain["ticks"],
         "frames_rendered": viewed["frames_rendered"],
         "reattached_without_restart": viewed["reattached"],
+        "frames_after_browser_disconnect": viewed["frames_after_browser_disconnect"],
         "traces_identical_with_and_without_viewer": identical,
         "trace_sha256": hashlib.sha256(trace.read_bytes()).hexdigest(),
         "recording_sha256": viewed["recording_sha256"],

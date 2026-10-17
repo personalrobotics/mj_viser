@@ -13,6 +13,7 @@ change stops it; and bad arguments are refused before anything renders.
 from __future__ import annotations
 
 import copy
+import socket
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -21,7 +22,7 @@ import mujoco
 import numpy as np
 
 import mj_viser
-from e2e.fixtures import expect_raises
+from e2e.fixtures import expect_raises, free_port
 
 
 @dataclass(frozen=True)
@@ -93,6 +94,18 @@ def check_live_view(model: mujoco.MjModel) -> dict[str, Any]:
     if view.refresh(force=True) is not None:
         raise SystemExit("refresh after close rendered")
     out["stale_source"] = view.stale
+
+    # A failed attach is a failed lifecycle transition: the viewer closes and frees its port.
+    failing = _Source(model)
+    failing.fail_with = RuntimeError("capture failed")
+    port = free_port()
+    view = mj_viser.LiveView(failing, max_rate_hz=None, port=port)
+    out["open_with_failing_source"] = expect_raises(RuntimeError, view.open)
+    if view.is_open:
+        raise SystemExit("open() left the viewer open after the first frame failed")
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", port))  # released
+    out["failed_open_released_port"] = True
 
     changed = _Source(model)
     view = mj_viser.LiveView(changed, max_rate_hz=None, port=0)
