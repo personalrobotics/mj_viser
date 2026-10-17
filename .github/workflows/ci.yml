@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  # Nightly: the newest dependency releases on every Python, without waiting for a push.
+  schedule:
+    - cron: "0 7 * * *"
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -51,14 +54,36 @@ jobs:
           path: dist/
           if-no-files-found: error
 
-  # Tests run against the uploaded wheel, not a rebuild.
+  # Tests run against the uploaded wheel, not a rebuild. One job per (Python, environment)
+  # so they run in parallel. Pull requests check the locked versions on every Python plus
+  # the declared minimums and the newest releases; main, nightly, and manual runs also check
+  # the newest releases on every Python.
   test:
+    name: test (${{ matrix.python }}, ${{ matrix.env }})
     needs: build
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        include: >-
+          ${{ fromJSON(github.event_name == 'pull_request' && '[
+            {"python": "3.11", "env": "lowest"},
+            {"python": "3.11", "env": "locked"},
+            {"python": "3.12", "env": "locked"},
+            {"python": "3.13", "env": "locked"},
+            {"python": "3.14", "env": "locked"},
+            {"python": "3.14", "env": "latest"}
+          ]' || '[
+            {"python": "3.11", "env": "lowest"},
+            {"python": "3.11", "env": "locked"},
+            {"python": "3.12", "env": "locked"},
+            {"python": "3.13", "env": "locked"},
+            {"python": "3.14", "env": "locked"},
+            {"python": "3.11", "env": "latest"},
+            {"python": "3.12", "env": "latest"},
+            {"python": "3.13", "env": "latest"},
+            {"python": "3.14", "env": "latest"}
+          ]') }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -66,7 +91,7 @@ jobs:
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           enable-cache: true
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ matrix.python }}
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -76,47 +101,33 @@ jobs:
       - name: Verify artifact hashes
         run: (cd dist && sha256sum -c SHA256SUMS)
 
-      # Real robots for the end-to-end check, each pinned to one commit: a textured articulated
-      # robot (MuJoCo Menagerie unitree_a1), and the ADA and Geodude models with their sites.
+      # Public robots from MuJoCo Menagerie, pinned to one commit: a textured arm with cameras
+      # (trossen_wxai), a gripper with tendons (robotiq_2f85), and a legged robot (unitree_go1),
+      # with sites in several groups between them.
       - name: Fetch robot fixtures
         run: |
-          fetch() {  # fetch DIR URL COMMIT PATH...
-            git init -q "$1"
-            git -C "$1" remote add origin "$2"
-            git -C "$1" sparse-checkout set "${@:4}"
-            git -C "$1" fetch -q --depth 1 --filter=blob:none origin "$3"
-            git -C "$1" checkout -q FETCH_HEAD
-          }
-          fetch menagerie https://github.com/google-deepmind/mujoco_menagerie.git \
-            feadf76d42f8a2162426f7d226a3b539556b3bf5 unitree_a1
-          fetch ada https://github.com/personalrobotics/ada_assets.git \
-            66b2d12ffb70fe217c64c45691166fc43d1b203b src/ada_assets/models
-          g=src/geodude_assets/models
-          fetch geodude https://github.com/personalrobotics/geodude_assets.git \
-            30ca5ff8706e5d856fd22d2511c879026ee45bb3 $g/geodude $g/universal_robots_ur5e $g/robotiq_2f140 $g/vention
+          git init -q menagerie
+          git -C menagerie remote add origin https://github.com/google-deepmind/mujoco_menagerie.git
+          git -C menagerie sparse-checkout set trossen_wxai robotiq_2f85 unitree_go1
+          git -C menagerie fetch -q --depth 1 --filter=blob:none origin feadf76d42f8a2162426f7d226a3b539556b3bf5
+          git -C menagerie checkout -q FETCH_HEAD
 
       # Software OpenGL, so the texture check can compare against MuJoCo's renderer.
       - name: Install OSMesa
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libosmesa6
 
-      # Same end-to-end scenario against the locked and newest dependencies on every
-      # Python, and against every declared minimum on the oldest supported Python.
       - name: Clean-wheel end-to-end check
         env:
           MUJOCO_GL: osmesa
           MJ_VISER_REQUIRE_RENDER: "1"
         run: |
-          envs="locked latest"
-          if [ "${{ matrix.python-version }}" = "3.11" ]; then envs="lowest $envs"; fi
-          robots=menagerie/unitree_a1/scene.xml
-          robots=$robots:ada/src/ada_assets/models/scene.xml
-          robots=$robots:geodude/src/geodude_assets/models/geodude/geodude.xml
-          MJ_VISER_WHEEL="$(ls dist/mj_viser-*.whl)" MJ_VISER_ROBOT_XML=$robots scripts/smoke_wheel.sh e2e $envs
+          robots=menagerie/trossen_wxai/scene.xml:menagerie/robotiq_2f85/scene.xml:menagerie/unitree_go1/scene.xml
+          MJ_VISER_WHEEL="$(ls dist/mj_viser-*.whl)" MJ_VISER_ROBOT_XML=$robots scripts/smoke_wheel.sh e2e ${{ matrix.env }}
           cp dist/SHA256SUMS e2e/
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: e2e-py${{ matrix.python-version }}
+          name: e2e-py${{ matrix.python }}-${{ matrix.env }}
           path: e2e/
           if-no-files-found: error
 
