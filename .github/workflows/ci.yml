@@ -158,7 +158,7 @@ jobs:
         run: |
           uv venv --quiet .ssrobot
           uv pip install --quiet --python .ssrobot/bin/python "$(ls dist/mj_viser-*.whl)" \
-            "ssrobot[mujoco] @ git+https://github.com/personalrobotics/ssrobot.git@63870b0830b86b57099aea0239a233a3478e6294" \
+            "ssrobot[mujoco] @ git+https://github.com/personalrobotics/ssrobot.git@79d84a0e559ff81d3d71919c36ea63b9f2e82676" \
             "geodude-assets @ git+https://github.com/personalrobotics/geodude_assets.git@30ca5ff8706e5d856fd22d2511c879026ee45bb3" \
             "ada-assets @ git+https://github.com/personalrobotics/ada_assets.git@66b2d12ffb70fe217c64c45691166fc43d1b203b"
 
@@ -185,7 +185,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: personalrobotics/ssrobot
-          ref: 63870b0830b86b57099aea0239a233a3478e6294
+          ref: 79d84a0e559ff81d3d71919c36ea63b9f2e82676
           path: .ssrobot-src
           sparse-checkout: references/scenes
           persist-credentials: false
@@ -208,7 +208,7 @@ jobs:
         run: |
           uv venv --quiet .ssrobot
           uv pip install --quiet --python .ssrobot/bin/python "$(ls dist/mj_viser-*.whl)" \
-            "ssrobot[mujoco] @ git+https://github.com/personalrobotics/ssrobot.git@63870b0830b86b57099aea0239a233a3478e6294" \
+            "ssrobot[mujoco] @ git+https://github.com/personalrobotics/ssrobot.git@79d84a0e559ff81d3d71919c36ea63b9f2e82676" \
             "geodude-assets @ git+https://github.com/personalrobotics/geodude_assets.git@30ca5ff8706e5d856fd22d2511c879026ee45bb3" \
             "ada-assets @ git+https://github.com/personalrobotics/ada_assets.git@66b2d12ffb70fe217c64c45691166fc43d1b203b"
 
