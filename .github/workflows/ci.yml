@@ -243,10 +243,73 @@ jobs:
             ssrobot-replay/*/converted/
           if-no-files-found: error
 
+  ssrobot-preview:
+    name: ssrobot plan preview
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # The reference scenes, from the same ssrobot commit as the package.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: personalrobotics/ssrobot
+          ref: 54169dd7af5a5188e1b36fec379e3bd989c088a5
+          path: .ssrobot-src
+          sparse-checkout: references/scenes
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+
+      - name: Verify artifact hashes
+        run: (cd dist && sha256sum -c SHA256SUMS)
+
+      - name: Install the wheel, ssrobot, and the reference robots
+        run: |
+          uv venv --quiet .ssrobot
+          uv pip install --quiet --python .ssrobot/bin/python "$(ls dist/mj_viser-*.whl)" \
+            "ssrobot[mujoco,planning] @ git+https://github.com/personalrobotics/ssrobot.git@54169dd7af5a5188e1b36fec379e3bd989c088a5" \
+            "geodude-assets @ git+https://github.com/personalrobotics/geodude_assets.git@30ca5ff8706e5d856fd22d2511c879026ee45bb3" \
+            "ada-assets @ git+https://github.com/personalrobotics/ada_assets.git@66b2d12ffb70fe217c64c45691166fc43d1b203b"
+
+      # Software OpenGL: ADA's wrist camera is observed, and MuJoCo renders it.
+      - name: Install OSMesa
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libosmesa6
+
+      - name: Preview Geodude and ADA plans
+        env:
+          MUJOCO_GL: osmesa
+          PYOPENGL_PLATFORM: osmesa
+        run: |
+          mkdir -p ssrobot-preview && cd ssrobot-preview
+          ../.ssrobot/bin/python -I ../scripts/e2e/ssrobot_preview.py ../.ssrobot-src/references/scenes .
+          cat ssrobot_preview.json
+          sha256sum */*.result.json */offset.preview.* > SHA256SUMS
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ssrobot-preview
+          path: |
+            ssrobot-preview/ssrobot_preview.json
+            ssrobot-preview/SHA256SUMS
+            ssrobot-preview/*/*.result.json
+            ssrobot-preview/*/offset.preview.*
+            ssrobot-preview/*/*.trace.jsonl
+          if-no-files-found: error
+
   # Legacy integration hook. It needs a token that is not configured, so it is skipped
   # rather than failing main until robot-code owns a replacement.
   notify-robot-code:
-    needs: [test, ssrobot-live, ssrobot-replay]
+    needs: [test, ssrobot-live, ssrobot-replay, ssrobot-preview]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
