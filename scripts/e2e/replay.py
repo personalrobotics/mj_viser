@@ -94,6 +94,33 @@ def check_replay(model: mujoco.MjModel) -> dict[str, Any]:
         ),
         "empty": expect_raises(ValueError, lambda: record_trace([], world)),
     }
+
+    # An interrupted run: its last change is a reading going stale, by elapsed time alone.
+    # The label must end saying so, as the report's model does, and must not be updated
+    # for steps that change nothing it shows.
+    reading = NS(channel="arm_q", stamp=NS(time_ns=0), value=(0.3, 0.1))
+    rows = [
+        ("opened", 0, NS(runtime="stand-in", clock_mode="manual", channels=("arm_q",))),
+        ("snapshot", 0, _snapshot(STATES["A"])),
+        ("observed", 0, NS(readings=(reading,))),
+        *(("stepped", t, None) for t in (500_000_000, 1_000_000_000, 1_500_000_000, 2_000_000_000)),
+    ]
+    interrupted = record_trace([_Record(i, k, "sim", t, p) for i, (k, t, p) in enumerate(rows)], world)
+    texts = [
+        (t, (m.get("props") or m.get("updates") or {}).get("text"))
+        for t, m in replay_recording(interrupted.recording)
+        if m.get("name") == LABEL
+    ]
+    final = [s for _, s in texts if s is not None][-1]
+    if "arm_q = [0.300, 0.100] (t = 0.000 s, stale)" not in final.split("\n"):
+        raise SystemExit(f"an interrupted trace's label ends {final!r}")
+    changes = interrupted.report["not_shown_but_changed_the_label"]
+    if [c["time_ns"] for c in changes] != [1_500_000_000]:
+        raise SystemExit(f"label updates from hidden records: {changes}")
+    out["stale_by_elapsed_time"] = {
+        "label": "arm_q = [0.300, 0.100] (t = 0.000 s, stale)",
+        "updated_at_ns": 1_500_000_000,
+    }
     try:
         import ssrobot  # noqa: F401
     except ModuleNotFoundError:

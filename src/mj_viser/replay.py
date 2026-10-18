@@ -115,15 +115,21 @@ def record_trace(
 
         shown: list[dict[str, Any]] = []
         hidden: dict[str, int] = {}
+        hidden_changes: list[dict[str, Any]] = []
+        showing = channels.lines()[1:]  # what the label shows, apart from the time
         frames: list[int] = []
         frame_sequences: list[int] = []
         cursor = t0
         for record, kind in zip(records, kinds, strict=True):
             channels.accept(record)
             # ``stepped`` marks time only; an applied setpoint is shown only when modified.
+            # Either can still change what the label shows (a reading going stale), and
+            # only then is the label updated.
             if kind == "stepped" or (kind == "applied" and not record.payload.modifications):
                 hidden[kind] = hidden.get(kind, 0) + 1
-                continue
+                if channels.lines()[1:] == showing:
+                    continue
+                hidden_changes.append({"sequence": record.sequence, "time_ns": record.time_ns, "kind": kind})
             if record.time_ns > cursor:
                 recorder.insert_sleep((record.time_ns - cursor) / 1e9)
                 cursor = record.time_ns
@@ -134,9 +140,11 @@ def record_trace(
                     root.visible = True
                 frames.append(record.time_ns)
                 frame_sequences.append(record.sequence)
-            else:
+            elif not hidden_changes or hidden_changes[-1]["sequence"] != record.sequence:
                 shown.append({"sequence": record.sequence, "time_ns": record.time_ns, "kind": kind})
-            text.text = "\n".join(channels.lines())
+            lines = channels.lines()
+            text.text = "\n".join(lines)
+            showing = lines[1:]
         end = records[-1].time_ns
         if end > cursor:
             recorder.insert_sleep((end - cursor) / 1e9)
@@ -166,6 +174,7 @@ def record_trace(
         "shown": shown,
         "channels": channels.coverage(),
         "not_shown": dict(sorted(hidden.items())),
+        "not_shown_but_changed_the_label": hidden_changes,
         "recording": {
             "duration_s": (end - t0) / 1e9,
             "sha256": hashlib.sha256(recording).hexdigest(),
