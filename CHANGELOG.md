@@ -15,6 +15,10 @@
   execution's state history, the scene revision, and recent events (#6). `LiveView(...,
   channels=)` shows it in per-browser panels with a per-browser plot; replays show it
   in their scene label and list every channel's coverage in `conversion.json`.
+- RGB image channels, such as ADA's wrist camera, are shown live in per-browser image
+  panels and in replays as scene images at their recorded times (#24). An image is sent
+  at most once per new reading; a reading that is not an H×W×3 `uint8` image is marked
+  `malformed`, and a replay's report accounts for every image reading.
 - `python -m mj_viser.replay BUNDLE OUT_DIR` converts an ssrobot run bundle into a
   native Viser recording and a conversion report (#4). Frames are the run's recorded
   snapshots, with no interpolation; a scene label shows commands, execution states,

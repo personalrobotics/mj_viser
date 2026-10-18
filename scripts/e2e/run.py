@@ -31,6 +31,7 @@ import mj_viser  # noqa: E402
 from e2e.channels import check_channels  # noqa: E402
 from e2e.clients import panel_free_groups, two_client_selection  # noqa: E402
 from e2e.fixtures import MJCF, source_states  # noqa: E402
+from e2e.images import check_images  # noqa: E402
 from e2e.lifecycle import check_lifecycle  # noqa: E402
 from e2e.live_view import check_live_view  # noqa: E402
 from e2e.package_checks import check_package  # noqa: E402
@@ -57,6 +58,7 @@ def main(out_dir: str, env_label: str) -> None:
     report["live_view"] = check_live_view(model)
     report["replay"] = check_replay(model)
     report["channels"] = check_channels(model)
+    report["images"] = check_images(model, out_dir)
 
     if robots := os.environ.get("MJ_VISER_ROBOT_XML"):
         report["robots"] = [robot_scenario(path, out_dir) for path in robots.split(os.pathsep)]

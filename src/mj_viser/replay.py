@@ -35,7 +35,7 @@ from typing import Any, Protocol
 import mujoco
 import numpy as np
 
-from mj_viser.channels import ChannelModel
+from mj_viser.channels import IMAGE, ChannelModel
 from mj_viser.viewer import MujocoViewer
 
 LABEL = "/replay/status"
@@ -115,6 +115,8 @@ def record_trace(
 
         shown: list[dict[str, Any]] = []
         hidden: dict[str, int] = {}
+        images: dict[str, dict[str, list[int]]] = {}
+        image_nodes: dict[str, Any] = {}
         hidden_changes: list[dict[str, Any]] = []
         showing = channels.lines()[1:]  # what the label shows, apart from the time
         frames: list[int] = []
@@ -142,6 +144,8 @@ def record_trace(
                 frame_sequences.append(record.sequence)
             elif not hidden_changes or hidden_changes[-1]["sequence"] != record.sequence:
                 shown.append({"sequence": record.sequence, "time_ns": record.time_ns, "kind": kind})
+            if kind == "observed":
+                _show_images(server, channels, record, images, image_nodes, anchor, extent)
             lines = channels.lines()
             text.text = "\n".join(lines)
             showing = lines[1:]
@@ -175,6 +179,7 @@ def record_trace(
         "channels": channels.coverage(),
         "not_shown": dict(sorted(hidden.items())),
         "not_shown_but_changed_the_label": hidden_changes,
+        "images": {name: images[name] for name in sorted(images)},
         "recording": {
             "duration_s": (end - t0) / 1e9,
             "sha256": hashlib.sha256(recording).hexdigest(),
@@ -183,6 +188,45 @@ def record_trace(
         "mj_viser": version("mj-viser"),
     }
     return Replay(recording=recording, report=report)
+
+
+# Images stand upright beside the label: the image plane turned 90° about x.
+_UPRIGHT = (np.cos(np.pi / 4), np.sin(np.pi / 4), 0.0, 0.0)
+
+
+def _show_images(
+    server: Any,
+    channels: ChannelModel,
+    record: TraceRecord,
+    images: dict[str, dict[str, list[int]]],
+    nodes: dict[str, Any],
+    anchor: np.ndarray,
+    extent: float,
+) -> None:
+    """Show each image reading of an observation as a scene image, which a recording
+    keeps; account for every image reading, shown or malformed."""
+    image_channels = {c.name: c for c in channels.channels() if c.quantity == IMAGE}
+    for reading in record.payload.readings:
+        c = image_channels.get(reading.channel)
+        if c is None:
+            continue
+        stamp = reading.stamp.time_ns
+        log = images.setdefault(c.name, {"readings": [], "shown": [], "malformed": []})
+        log["readings"].append(stamp)
+        image, _ = channels.image(c.name)
+        if image is None:
+            log["malformed"].append(stamp)
+            continue
+        log["shown"].append(stamp)
+        if c.name in nodes:
+            nodes[c.name].image = image
+            continue
+        width = 0.5 * extent
+        height = width * image.shape[0] / image.shape[1]
+        position = anchor + [width * (0.6 + 1.1 * len(nodes)), 0.0, -0.5 * height]
+        nodes[c.name] = server.scene.add_image(
+            f"/replay/images/{c.name}", image, width, height, format="jpeg", wxyz=_UPRIGHT, position=position
+        )
 
 
 def _kind(record: TraceRecord) -> str:

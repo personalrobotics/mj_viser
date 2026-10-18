@@ -3,8 +3,8 @@
 
 """Named channels, executions, and scene, live and per client, without ssrobot.
 
-A stand-in description declares four channels: joint positions of a group, a pose, an
-image, and joint velocities the runtime does not provide. A stand-in run opens, observes,
+A stand-in description declares four channels: joint positions of a group, a pose, a
+depth image, and joint velocities the runtime does not provide. A stand-in run opens, observes,
 submits, and changes its scene. The checks: each channel is displayed, unavailable, or
 unsupported as declared; readings are shown by joint name; a channel goes stale when
 its reading ages; markup in trace text is escaped; and with two browsers connected to a
@@ -33,7 +33,7 @@ DESCRIPTION = NS(
         NS(name="arm_q", quantity="joint_position", source="arm"),
         NS(name="arm_qd", quantity="joint_velocity", source="arm"),
         NS(name="hand_pose", quantity="pose", source="hand"),
-        NS(name="wrist_rgb", quantity="rgb_image", source="wrist_camera"),
+        NS(name="wrist_depth", quantity="depth_image", source="wrist_camera"),
     ),
 )
 
@@ -45,7 +45,7 @@ def _reading(channel: str, t: int, value: Any) -> NS:
 def _records() -> list[NS]:
     pose = (0.1, 0.2, 0.3, 1.0, 0.0, 0.0, 0.0)
     rows = [
-        ("opened", 0, NS(runtime="stand-in", clock_mode="manual", channels=("arm_q", "hand_pose", "wrist_rgb"))),
+        ("opened", 0, NS(runtime="stand-in", clock_mode="manual", channels=("arm_q", "hand_pose", "wrist_depth"))),
         ("observed", 0, NS(readings=(_reading("arm_q", 0, (0.3, 0.1)),))),
         ("submitted", 100_000_000, NS(execution="e1", command=NS(group="arm"))),
         ("status", 100_000_000, NS(execution="e1", state="active", diagnostic=None)),
@@ -94,7 +94,7 @@ def check_channels(model: mujoco.MjModel) -> dict[str, Any]:
     for record in _records():
         channels(record)  # the sink interface
     coverage = {name: c["status"] for name, c in channels.coverage().items()}
-    expected = {"arm_q": "displayed", "arm_qd": "unavailable", "hand_pose": "displayed", "wrist_rgb": "unsupported"}
+    expected = {"arm_q": "displayed", "arm_qd": "unavailable", "hand_pose": "displayed", "wrist_depth": "unsupported"}
     if coverage != expected:
         raise SystemExit(f"channel coverage {coverage}, expected {expected}")
     out["coverage"] = coverage
