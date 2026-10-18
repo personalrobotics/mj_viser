@@ -48,7 +48,7 @@ def _snapshot(positions: list[float], world: str = "w") -> NS:
 def _trace(world: str = "w") -> list[_Record]:
     command = NS(group="arm")
     rows = [
-        ("opened", 0, NS(runtime="stand-in", clock_mode="manual")),
+        ("opened", 0, NS(runtime="stand-in", clock_mode="manual", channels=())),
         ("snapshot", 0, _snapshot(STATES["A"], world)),
         ("submitted", 10_000_000, NS(execution="e1", command=command)),
         ("status", 10_000_000, NS(execution="e1", state="active", diagnostic=None)),
