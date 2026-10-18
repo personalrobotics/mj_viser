@@ -215,11 +215,15 @@ def _show_images(
         log["readings"].append(stamp)
         image, _ = channels.image(c.name)
         if image is None:
+            # Never show an older image as if it were this reading.
             log["malformed"].append(stamp)
+            if c.name in nodes:
+                nodes[c.name].visible = False
             continue
         log["shown"].append(stamp)
         if c.name in nodes:
             nodes[c.name].image = image
+            nodes[c.name].visible = True
             continue
         width = 0.5 * extent
         height = width * image.shape[0] / image.shape[1]
