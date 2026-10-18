@@ -100,6 +100,7 @@ class LiveView:
         self._min_interval = 0.0 if max_rate_hz is None else 1.0 / max_rate_hz
         self._last_render = -math.inf
         self._stale: str | None = None
+        self._frame: RenderFrame | None = None
         self._panels = None if channels is None else ChannelPanels(channels)
         self.viewer = MujocoViewer(source.model, host=host, port=port, label=label, show_visibility=show_visibility)
         """The underlying viewer, for panels, HUDs, and visibility groups."""
@@ -115,6 +116,11 @@ class LiveView:
         after the simulation reopened), or None. A stale view renders nothing more;
         attach a new one with a new source."""
         return self._stale
+
+    @property
+    def frame(self) -> RenderFrame | None:
+        """The latest frame rendered, or None before the first."""
+        return self._frame
 
     @property
     def is_open(self) -> bool:
@@ -166,6 +172,7 @@ class LiveView:
         if frame.world != self._world:
             self._mark_stale("world_changed")
             return None
+        self._frame = frame
         self.viewer.update(self._source.data)
         self.viewer.set_hud("runtime", f"t = {frame.time.time_ns / 1e9:.3f} s · scene revision {frame.revision}")
         if self._panels is not None:

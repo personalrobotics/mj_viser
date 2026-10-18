@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `PlanPreview` shows ssrobot planning results as a ghost of the moving robot in the
+  scene they were planned in (#3). Each browser picks a result and scrubs its exact path
+  waypoints or its trajectory, evaluated from the planner's timing law, in its own scene.
+  Results from another snapshot, world, or live scene revision are refused, shown ones
+  go stale when the scene changes, and a supplied invalid validation's first invalid
+  state is shown as reported. `record_preview` writes a preview as a recording.
+  `LiveView.frame` is the latest frame rendered.
+
 ## 0.3.0 — 2026-10-18
 
 ### Added

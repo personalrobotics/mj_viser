@@ -99,6 +99,26 @@ Each browser gets its own panels:
 
 The panels only show; they hold no control of the run, and one browser's choices never reach another. A replay shows the same model in its scene label, with camera images beside it.
 
+### Preview a plan (ssrobot)
+
+`PlanPreview` shows planning results as a translucent ghost of the moving robot, in the scene they were planned in, before you choose to execute them:
+
+```python
+from ssrobot.mujoco import materialize_world_from
+from mj_viser import PlanPreview
+
+world = materialize_world_from(package, world=runtime.world(), scene=scene)
+preview = PlanPreview(world, live=view)   # view: your LiveView
+view.viewer.add_panel(preview)
+snapshot = ctx.snapshot()
+preview.add("lift", arm.plan_to_end_effector_offset((0, 0, 1), 0.05, snapshot=snapshot, planner=planner), snapshot)
+```
+
+- Each browser picks a result and scrubs its path (the planner's own waypoints) or its trajectory (evaluated exactly from the planner's timing law). The ghost is in that browser's scene only.
+- A result is refused if it was planned in another snapshot, world, or (with `live=`) scene revision, and a shown preview goes stale when the scene changes.
+- `add(..., validation=)` takes an invalid `MotionValidation` and shows its first invalid state, with its location and contacts, as ssrobot reported it.
+- Previewing never submits, cancels, or changes anything. `mj_viser.preview.record_preview` writes a preview as a `.viser` recording.
+
 ### Replay a recorded run (ssrobot)
 
 A run saved as an ssrobot run bundle (`ssrobot.write_bundle`) converts into a native Viser recording. The bundle is verified and its world rebuilt by ssrobot without a runtime, before anything renders:
