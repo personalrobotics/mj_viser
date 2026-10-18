@@ -5,12 +5,13 @@
 
 A stand-in description declares three RGB cameras; the runtime provides two. A stand-in
 trace observes them independently with solid-colour images: left_cam red then green,
-right_cam blue then yellow, then a right_cam reading that is not an RGB image, and then
-time passes. The checks:
+right_cam blue then yellow, then a reading that is not an RGB image, then blue again,
+and then time passes. The checks:
 
 - replay: each well-formed image is in the recording at its recorded time, decoded to
-  its colour; the report accounts for every image reading as shown or malformed; the
-  label ends with left_cam stale and right_cam malformed; aux_cam is unavailable;
+  its colour; a malformed reading hides right_cam's image while the label says
+  malformed, and the next valid reading shows it again; the report accounts for every
+  image reading as shown or malformed; both cameras end stale; aux_cam is unavailable;
 - live: both browsers get both images; several readings between two frames send one
   image (presentation throttling), while the model still counts every reading; and
   browsers connecting while every frame renders never make refresh raise.
@@ -69,6 +70,7 @@ def _trace() -> list[_Record]:
         _observed(100_000_000, left_cam=_image("green", (24, 32))),
         _observed(200_000_000, right_cam=_image("yellow", (16, 40))),
         _observed(300_000_000, right_cam=NS(dtype="float32", shape=(16, 40), data=bytes(16 * 40 * 4))),
+        _observed(400_000_000, right_cam=_image("blue", (16, 40))),
         ("stepped", 1_500_000_000, None),
     ]
     return [_Record(i, k, "sim", t, p) for i, (k, t, p) in enumerate(rows)]
@@ -86,12 +88,16 @@ def check_images(model: mujoco.MjModel, out_dir: str) -> dict[str, Any]:
     report = replay.report
     expected = {
         "left_cam": {"readings": [0, 100_000_000], "shown": [0, 100_000_000], "malformed": []},
-        "right_cam": {"readings": [0, 200_000_000, 300_000_000], "shown": [0, 200_000_000], "malformed": [300_000_000]},
+        "right_cam": {
+            "readings": [0, 200_000_000, 300_000_000, 400_000_000],
+            "shown": [0, 200_000_000, 400_000_000],
+            "malformed": [300_000_000],
+        },
     }
     if report["images"] != expected:
         raise SystemExit(f"image accounting {report['images']}, expected {expected}")
     coverage = {n: c["status"] for n, c in report["channels"].items()}
-    if coverage != {"aux_cam": "unavailable", "left_cam": "displayed", "right_cam": "malformed"}:
+    if coverage != {"aux_cam": "unavailable", "left_cam": "displayed", "right_cam": "displayed"}:
         raise SystemExit(f"image channel coverage {coverage}")
 
     # The recording itself: each image's colour at its time, and the label's final state.
@@ -108,16 +114,32 @@ def check_images(model: mujoco.MjModel, out_dir: str) -> dict[str, Any]:
         (0.0, "right_cam", "blue"),
         (0.1, "left_cam", "green"),
         (0.2, "right_cam", "yellow"),
+        (0.4, "right_cam", "blue"),
     ]:
         raise SystemExit(f"recorded images {seen}")
-    texts = [(m.get("props") or m.get("updates") or {}).get("text") for _, m in messages if m.get("name") == LABEL]
-    final = [s for s in texts if s is not None][-1].split("\n")
-    for expect in (
-        "left_cam = uint8 24×32×3 (t = 0.100 s, stale)",
-        "right_cam = malformed: float32 16×40, not uint8 H×W×3",
+    # A malformed reading hides the image it cannot replace; the next valid one shows.
+    visibility = [
+        (round(t, 6), m["visible"])
+        for t, m in messages
+        if m["type"] == "SetSceneNodeVisibilityMessage" and m.get("name") == "/replay/images/right_cam" and t > 0
+    ]
+    if visibility != [(0.3, False), (0.4, True)]:
+        raise SystemExit(f"right_cam visibility over the recording: {visibility}")
+    labels = [
+        (t, (m.get("props") or m.get("updates") or {}).get("text")) for t, m in messages if m.get("name") == LABEL
+    ]
+    labels = [(t, s.split("\n")) for t, s in labels if s is not None]
+
+    def label_at(t: float) -> list[str]:
+        return [s for when, s in labels if when <= t + 1e-9][-1]
+
+    for t, expect in (
+        (0.3, "right_cam = malformed: float32 16×40, not uint8 H×W×3"),
+        (1.5, "left_cam = uint8 24×32×3 (t = 0.100 s, stale)"),
+        (1.5, "right_cam = uint8 16×40×3 (t = 0.400 s, stale)"),
     ):
-        if expect not in final:
-            raise SystemExit(f"{expect!r} not in the label's final state {final}")
+        if expect not in label_at(t):
+            raise SystemExit(f"{expect!r} not in the label at {t} s: {label_at(t)}")
     out["recorded"] = [f"{t} s {name} {colour}" for t, name, colour in seen]
     with open(os.path.join(out_dir, "images.viser"), "wb") as f:
         f.write(replay.recording)
