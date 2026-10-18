@@ -69,7 +69,8 @@ def _vandalize(view: LiveView) -> None:
 
 def _silent_client(url: str) -> Any:
     """A browser that connects and then never reads: the slowest possible client."""
-    ws = connect(url.replace("http://", "ws://"), subprotocols=[f"viser-v{version('viser')}"])
+    # No message size cap: a browser has none, and a robot scene is several MB.
+    ws = connect(url.replace("http://", "ws://"), subprotocols=[f"viser-v{version('viser')}"], max_size=None)
     camera = {
         "type": "ViewerCameraMessage",
         "wxyz": [1, 0, 0, 0],
