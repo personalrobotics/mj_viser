@@ -8,7 +8,7 @@ Needs ssrobot with its MuJoCo extra and the geodude_assets and ada_assets packag
 Usage: python -I scripts/e2e/ssrobot_live.py OUT_DIR
 
 For each robot, one deterministic motion (its manipulator's joints moved 0.15 rad by a
-two-point trajectory, then settled, every non-image channel observed every 50 ticks) runs
+two-point trajectory, then settled, every channel but depth observed every 50 ticks) runs
 twice under a JSONL trace:
 
 - without a viewer;
@@ -57,7 +57,7 @@ DELTA = 0.15  # rad, every joint of the manipulator
 DURATION_NS = 1_000_000_000
 SETTLE_TICKS = 100
 MAX_TICKS = 2_000
-OBSERVE_EVERY = 50  # ticks; both runs observe every channel the runtime provides, except images
+OBSERVE_EVERY = 50  # ticks; both runs observe every channel the runtime provides, except depth
 
 
 def _vandalize(view: LiveView) -> None:
@@ -112,6 +112,12 @@ def _check_frame(view: LiveView, runtime: MujocoRuntime, joints: tuple[str, ...]
 def _check_channels(channels: ChannelModel, observation: Any) -> None:
     """The live channel model holds exactly what the runtime just observed."""
     for reading in observation.readings:
+        if hasattr(reading.value, "shape"):  # an image: the panel's image is the runtime's
+            image, stamp = channels.image(reading.channel)
+            expected = np.frombuffer(reading.value.data, np.uint8).reshape(reading.value.shape)
+            if image is None or stamp != reading.stamp.time_ns or not np.array_equal(image, expected):
+                raise SystemExit(f"image channel {reading.channel} does not show the observed image")
+            continue
         _, history = channels.history(reading.channel)
         if not history or history[-1] != (reading.stamp.time_ns, tuple(float(v) for v in reading.value)):
             raise SystemExit(f"channel {reading.channel} shows {history[-1:]}, observed {reading}")
@@ -132,9 +138,7 @@ def run(name: str, out: Path, viewed: bool) -> dict[str, Any]:
         ) as ctx,
     ):
         quantity = {c.name: str(c.quantity) for c in description.channels}
-        request = ObservationRequest(
-            channels=tuple(c for c in ctx.info.channels if quantity[c] not in ("rgb_image", "depth_image"))
-        )
+        request = ObservationRequest(channels=tuple(c for c in ctx.info.channels if quantity[c] != "depth_image"))
         view = None
         if viewed:
             handle = render_handle(ctx)

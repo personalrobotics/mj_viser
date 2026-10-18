@@ -9,7 +9,7 @@ ssrobot's reference scenes (``references/scenes`` in the ssrobot repository).
 Usage: python -I scripts/e2e/ssrobot_replay.py SCENES_DIR OUT_DIR
 
 For each robot, one deterministic run in its reference scene: the manipulator's joints
-move 0.15 rad and settle, a snapshot every 10 ticks, every non-image channel observed at the start
+move 0.15 rad and settle, a snapshot every 10 ticks, every channel but depth observed at the start
 and then every 50 ticks, and the cylinder declared held and then released partway. The run is
 bundled with ``ssrobot.write_bundle``. Then, with MuJoCo runtimes and robot contexts made
 unusable, ``mj_viser.replay`` converts the bundle; the documented command converts a
@@ -34,6 +34,7 @@ from __future__ import annotations
 import copy
 import faulthandler
 import hashlib
+import io
 import json
 import shutil
 import subprocess
@@ -45,8 +46,10 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import mujoco  # noqa: E402
+import numpy as np  # noqa: E402
 import ssrobot  # noqa: E402
 import ssrobot.mujoco  # noqa: E402
+from PIL import Image  # noqa: E402
 from ssrobot import (  # noqa: E402
     JointTrajectory,
     JsonlTrace,
@@ -96,11 +99,9 @@ def run(name: str, scene: Path, out: Path) -> tuple[Path, list[tuple[int, Any, A
         RobotContext(description, runtime := MujocoRuntime(package, scene=scene), sinks=[trace, live]) as ctx,
     ):
         handle = render_handle(ctx)
-        # Every channel the runtime provides, except images (not shown yet).
+        # Every channel the runtime provides, except depth (not shown).
         quantity = {c.name: str(c.quantity) for c in description.channels}
-        request = ObservationRequest(
-            channels=tuple(c for c in ctx.info.channels if quantity[c] not in ("rgb_image", "depth_image"))
-        )
+        request = ObservationRequest(channels=tuple(c for c in ctx.info.channels if quantity[c] != "depth_image"))
 
         def snapshot() -> Any:
             taken = ctx.snapshot()
@@ -214,7 +215,7 @@ def check(name: str, bundle: Path, truth: list[tuple[int, Any, Any]], live: Chan
         elif kind == "scene":
             expect = f"scene revision {r.payload.revision}"
         elif kind == "observed":
-            reading = r.payload.readings[-1]
+            reading = [x for x in r.payload.readings if not hasattr(x.value, "shape")][-1]  # images: below
             expect = f"{reading.channel} = "
             shown = text_at(texts, (r.time_ns - t0) / 1e9)
             line = next((x for x in shown.split("\n") if x.startswith(expect)), "")
@@ -234,16 +235,39 @@ def check(name: str, bundle: Path, truth: list[tuple[int, Any, Any]], live: Chan
     coverage = report["channels"]
     for c in opened.package.description.channels:
         quantity = str(c.quantity)
-        want = (
-            "unsupported"
-            if quantity in ("rgb_image", "depth_image")
-            else "displayed"
-            if c.name in confirmed
-            else "unavailable"
-        )
+        want = "unsupported" if quantity == "depth_image" else "displayed" if c.name in confirmed else "unavailable"
         got = coverage.get(c.name, {})
         if got.get("status") != want or (want == "displayed" and not got.get("readings")):
             raise SystemExit(f"{name}: channel {c.name} is {got}, expected {want} with readings")
+    # Every camera image is in the recording at its time, as observed (up to JPEG).
+    images_checked = {}
+    for channel, log in report["images"].items():
+        observed = [
+            (x.stamp.time_ns, np.frombuffer(x.value.data, np.uint8).reshape(x.value.shape))
+            for r in opened.records
+            if r.kind.value == "observed"
+            for x in r.payload.readings
+            if x.channel == channel
+        ]
+        if log["shown"] != [t for t, _ in observed] or log["readings"] != log["shown"] or log["malformed"]:
+            raise SystemExit(f"{name}: {channel} images {log}, observed at {[t for t, _ in observed]}")
+        recorded = [
+            (t, (m.get("props") or m.get("updates") or {})["_data"])
+            for t, m in messages
+            if m.get("name") == f"/replay/images/{channel}" and "_data" in (m.get("props") or m.get("updates") or {})
+        ]
+        # At each observation's time, the image showing is the observed one. Viser does
+        # not resend an image whose JPEG matches the last sent, so updates can be fewer.
+        worst = 0.0
+        for t, pixels in observed:
+            showing = [jpeg for when, jpeg in recorded if when <= (t - t0) / 1e9 + 1e-9]
+            if not showing:
+                raise SystemExit(f"{name}: no {channel} image showing at {t} ns")
+            shown = np.asarray(Image.open(io.BytesIO(showing[-1])).convert("RGB"), float)
+            worst = max(worst, float(np.abs(shown - pixels).mean()))
+        if worst > 8.0:
+            raise SystemExit(f"{name}: a showing {channel} image differs from the observed one by {worst:.1f}")
+        images_checked[channel] = {"images": len(observed), "worst_mean_abs_difference": round(worst, 2)}
     if coverage != live.coverage():
         raise SystemExit(f"{name}: replay coverage differs from live")
     final = texts[-1][1]
@@ -312,6 +336,7 @@ def check(name: str, bundle: Path, truth: list[tuple[int, Any, Any]], live: Chan
         "moved_bundle_converts_identically": True,
         "refused": refusals,
         "channels": coverage,
+        "images": images_checked,
         "replay_shows_what_live_showed": True,
         "output_inside_bundle": inside,
         "recording_sha256": hashlib.sha256(recording).hexdigest(),

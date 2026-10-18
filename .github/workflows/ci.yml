@@ -162,7 +162,14 @@ jobs:
             "geodude-assets @ git+https://github.com/personalrobotics/geodude_assets.git@30ca5ff8706e5d856fd22d2511c879026ee45bb3" \
             "ada-assets @ git+https://github.com/personalrobotics/ada_assets.git@66b2d12ffb70fe217c64c45691166fc43d1b203b"
 
+      # Software OpenGL: ADA's wrist camera is observed, and MuJoCo renders it.
+      - name: Install OSMesa
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libosmesa6
+
       - name: Live view changes nothing
+        env:
+          MUJOCO_GL: osmesa
+          PYOPENGL_PLATFORM: osmesa
         run: |
           mkdir -p ssrobot-live && cd ssrobot-live
           ../.ssrobot/bin/python -I ../scripts/e2e/ssrobot_live.py .
@@ -212,7 +219,14 @@ jobs:
             "geodude-assets @ git+https://github.com/personalrobotics/geodude_assets.git@30ca5ff8706e5d856fd22d2511c879026ee45bb3" \
             "ada-assets @ git+https://github.com/personalrobotics/ada_assets.git@66b2d12ffb70fe217c64c45691166fc43d1b203b"
 
+      # Software OpenGL: ADA's wrist camera is observed, and MuJoCo renders it.
+      - name: Install OSMesa
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libosmesa6
+
       - name: Replay Geodude and ADA from their run bundles
+        env:
+          MUJOCO_GL: osmesa
+          PYOPENGL_PLATFORM: osmesa
         run: |
           mkdir -p ssrobot-replay && cd ssrobot-replay
           ../.ssrobot/bin/python -I ../scripts/e2e/ssrobot_replay.py ../.ssrobot-src/references/scenes .
