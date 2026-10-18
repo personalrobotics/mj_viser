@@ -26,6 +26,7 @@ from viser import uplot
 
 # Quantities shown as images by a later panel; listed as unsupported until then.
 UNSUPPORTED = frozenset({"rgb_image", "depth_image"})
+_LATEST = 3  # executions shown; earlier ones are counted, so panels and labels keep their size
 
 
 def _enum(value: Any) -> str:
@@ -162,10 +163,15 @@ class ChannelModel:
         with self._lock:
             return f"scene revision {self._revision}" + (f": {', '.join(self._held)}" if self._held else "")
 
-    def executions(self) -> list[tuple[str, str]]:
-        """Each execution, in submission order: its id and command with its states."""
+    def executions(self, latest: int | None = None) -> list[tuple[str, str]]:
+        """Executions in submission order, the ``latest`` few if given: each one's id and
+        its command with its states. An earlier ones' count leads, as ``("…", "N earlier")``."""
         with self._lock:
-            return [(e, f"{x.command} · {' → '.join(x.states)}") for e, x in self._executions.items()]
+            items = list(self._executions.items())
+            shown = items if latest is None else items[-latest:]
+            out = [(e, f"{x.command} · {' → '.join(x.states)}") for e, x in shown]
+            earlier = len(items) - len(shown)
+            return ([("…", f"{earlier} earlier")] if earlier else []) + out
 
     def events(self) -> list[str]:
         """Recent runtime events, oldest first."""
@@ -199,7 +205,7 @@ class ChannelModel:
         and recent events."""
         with self._lock:
             lines = [f"t = {(self._now or 0) / 1e9:.3f} s", self.scene()]
-            lines += [f"{e}: {text}" for e, text in self.executions()]
+            lines += [f"{e}: {text}" for e, text in self.executions(latest=_LATEST)]
             lines += [f"{c.name} = {c.text}" for c in self.channels() if c.status in ("current", "stale")]
             return lines + self.events()[-1:]
 
@@ -313,7 +319,7 @@ class _ClientPanels:
         now = model.now_ns
         run = [(f"t = {(now or 0) / 1e9:.3f} s",), (model.scene(),)] + [(e,) for e in model.events()]
         self.run.content = _table(run)
-        self.executions.content = _table(model.executions() or [("no executions yet",)])
+        self.executions.content = _table(model.executions(latest=_LATEST) or [("no executions yet",)])
         states = model.channels()
         self.channels.content = _table([(c.name, c.status, c.text) for c in states])
         numeric = tuple(c.name for c in states if c.stamp_ns is not None and c.status in ("current", "stale"))
