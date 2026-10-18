@@ -94,7 +94,9 @@ class PlanPreview(PanelBase):
         """
         request = result.request
         if result.path is None and result.trajectory is None:
-            raise ValueError(f"{name}: the result has no path or trajectory to show")
+            status = getattr(result, "status", None)
+            why = f"the plan {getattr(status, 'value', status)}" if status is not None else "the result"
+            raise ValueError(f"{name}: {why} has no path or trajectory to show")
         if request.snapshot != snapshot.fingerprint():
             raise ValueError(f"{name}: the result was planned in another snapshot")
         if snapshot.model != self._world.world or snapshot.description != self._world.description:
