@@ -64,12 +64,12 @@ def recorded_local_poses(messages: list[tuple[float, dict]], before: float) -> d
     }
 
 
-def same_rotation(a: np.ndarray, b: np.ndarray) -> bool:
-    return bool(np.allclose(a, b, atol=1e-6) or np.allclose(a, -b, atol=1e-6))
+def same_rotation(a: np.ndarray, b: np.ndarray, atol: float = 1e-6) -> bool:
+    return bool(np.allclose(a, b, atol=atol) or np.allclose(a, -b, atol=atol))
 
 
 def check_world_poses(
-    local: dict[str, Pose], scene: dict, model: mujoco.MjModel, data: mujoco.MjData, where: str
+    local: dict[str, Pose], scene: dict, model: mujoco.MjModel, data: mujoco.MjData, where: str, atol: float = 1e-6
 ) -> int:  # type: ignore[type-arg]
     """Every rendered geom and every body must sit where MuJoCo's kinematics put it."""
     checked = 0
@@ -81,7 +81,7 @@ def check_world_poses(
             targets.append((g["path"], data.geom_xpos[g["id"]], quat))
     for path, exp_pos, exp_quat in targets:
         pos, quat = compose(local, path)
-        if not (np.allclose(pos, exp_pos, atol=1e-6) and same_rotation(quat, exp_quat)):
+        if not (np.allclose(pos, exp_pos, atol=atol) and same_rotation(quat, exp_quat, atol)):
             raise SystemExit(f"{where}: {path} at {pos}, {quat}; MuJoCo has {exp_pos}, {exp_quat}")
         checked += 1
     return checked
