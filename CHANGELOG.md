@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-10-18
 
 ### Added
 
@@ -25,6 +25,12 @@
   scene revisions, observations, violations, and runtime events at their recorded
   times. The bundle is verified and its world rebuilt by ssrobot before anything renders.
   `mj_viser.replay.record_trace` converts any trace and world of the same shape.
+
+### Known limitations
+
+- Viser sends a node's new pose only when it is not `np.allclose` (rtol 1e-5) to the
+  last one sent, so a body can lag a supplied state by about 1e-5 per local transform,
+  live and in recordings (#44).
 
 ## 0.2.0 — 2026-10-17
 
