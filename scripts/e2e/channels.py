@@ -175,4 +175,5 @@ def check_channels(model: mujoco.MjModel) -> dict[str, Any]:
         for ws in clients:
             ws.close()
         view.close()
+
     return out

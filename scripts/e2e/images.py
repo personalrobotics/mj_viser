@@ -12,7 +12,8 @@ time passes. The checks:
   its colour; the report accounts for every image reading as shown or malformed; the
   label ends with left_cam stale and right_cam malformed; aux_cam is unavailable;
 - live: both browsers get both images; several readings between two frames send one
-  image (presentation throttling), while the model still counts every reading.
+  image (presentation throttling), while the model still counts every reading; and
+  browsers connecting while every frame renders never make refresh raise.
 
 Writes images.viser and images_conversion.json to the output directory.
 """
@@ -22,6 +23,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import threading
 import time
 from importlib.metadata import version
 from types import SimpleNamespace as NS
@@ -45,6 +47,7 @@ DESCRIPTION = NS(
     groups=(),
     channels=tuple(NS(name=n, quantity="rgb_image", source=n) for n in ("aux_cam", "left_cam", "right_cam")),
 )
+BROWSERS = 20
 COLOURS = {"red": (255, 0, 0), "green": (0, 255, 0), "blue": (0, 0, 255), "yellow": (255, 255, 0)}
 
 
@@ -162,4 +165,36 @@ def check_images(model: mujoco.MjModel, out_dir: str) -> dict[str, Any]:
         for ws in clients:
             ws.close()
         view.close()
+
+    # Browsers connect and leave while the simulation refreshes every frame: panels are
+    # built on Viser's thread as frames render on this one, and refresh never raises.
+    view = LiveView(_Source(model), channels=channels, max_rate_hz=None, port=0)
+    url = view.open().replace("http://", "ws://")
+    errors: list[BaseException] = []
+    running = threading.Event()
+    running.set()
+
+    def loop() -> None:
+        while running.is_set():
+            try:
+                view.refresh(force=True)
+            except BaseException as e:  # noqa: BLE001 - recorded and reported below
+                errors.append(e)
+                return
+
+    refresher = threading.Thread(target=loop)
+    refresher.start()
+    try:
+        for _ in range(BROWSERS):
+            ws = connect(url, subprotocols=[f"viser-v{version('viser')}"], max_size=None)
+            ws.send(msgspec.msgpack.encode(CAMERA))
+            _frames(ws, 0.2)
+            ws.close()
+    finally:
+        running.clear()
+        refresher.join()
+        view.close()
+    if errors:
+        raise SystemExit(f"refresh raised while browsers connected: {errors[0]!r}")
+    out["browsers_connect_during_refresh"] = BROWSERS
     return out
