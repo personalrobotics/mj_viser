@@ -80,6 +80,24 @@ view.close()            # the simulation keeps running
 - The HUD shows the simulation's time and scene revision. `expected_world=` refuses a source for any other scene.
 - Attach and detach freely: make a new view with a new `render_handle(ctx)`. After the simulation reopens, an old view goes `stale` and renders nothing more.
 
+To see what the run says by name, pass a `ChannelModel` to the context as a trace sink and to the view:
+
+```python
+from mj_viser import ChannelModel, LiveView
+
+channels = ChannelModel(description)  # channel quantities and joint names
+with RobotContext(description, runtime, sinks=[trace, channels]) as ctx:
+    view = LiveView(render_handle(ctx), channels=channels)
+```
+
+Each browser gets its own panels:
+- each declared channel's latest reading by joint or component name, with its time, marked `current`, `stale`, `awaiting`, `unavailable` (the runtime does not provide it), or `unsupported` (images, for now);
+- each execution's command and state history;
+- the scene revision and what is held, and recent runtime events;
+- a plot of the channel that browser picks.
+
+The panels only show; they hold no control of the run, and one browser's choices never reach another. A replay shows the same model in its scene label.
+
 ### Replay a recorded run (ssrobot)
 
 A run saved as an ssrobot run bundle (`ssrobot.write_bundle`) converts into a native Viser recording. The bundle is verified and its world rebuilt by ssrobot without a runtime, before anything renders:
@@ -91,7 +109,7 @@ python -m mj_viser.replay run-bundle/ replay/
 ```
 
 - Frames are the run's `SceneSnapshot`s, at the cadence the run took them with `ctx.snapshot()`. Nothing is interpolated.
-- A label in the scene shows commands with each execution's states, scene revisions, observations, attachment violations, and runtime events at their recorded times.
+- A label in the scene shows what a `ChannelModel` of the trace shows at each record's time: named channel readings, each execution's states, the scene revision, and runtime events. `conversion.json` lists every declared channel as displayed, unavailable, or unsupported.
 - A bundle with a missing or changed file is refused, and nothing is written. Moving the bundle does not change the recording.
 - Play it with Viser's own player: `viser-build-client --out-dir client/`, serve the directory (`python -m http.server`), and open `http://localhost:8000/client/?playbackPath=http://localhost:8000/replay/recording.viser`.
 

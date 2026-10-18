@@ -19,6 +19,7 @@ from typing import Any, Protocol
 
 import mujoco
 
+from mj_viser.channels import ChannelModel, ChannelPanels
 from mj_viser.viewer import MujocoViewer
 
 # Errors a render source raises when it can no longer describe its simulation, by their
@@ -67,6 +68,7 @@ class LiveView:
         source: RenderSource,
         *,
         expected_world: str | None = None,
+        channels: ChannelModel | None = None,
         max_rate_hz: float | None = 30.0,
         host: str = "127.0.0.1",
         port: int = 8080,
@@ -78,6 +80,9 @@ class LiveView:
             source: The render source, for example ``ssrobot.mujoco.render_handle(ctx)``.
             expected_world: If given, the scene identity the source must describe;
                 anything else is refused before rendering.
+            channels: A :class:`~mj_viser.channels.ChannelModel` that the simulation
+                feeds as a trace sink. Each browser then gets panels of its named
+                channels, executions, scene, and events, updated with each frame.
             max_rate_hz: Most frames rendered per second. Faster calls to
                 :meth:`refresh` are coalesced. None renders every call.
             host, port, label, show_visibility: As for :class:`MujocoViewer`.
@@ -95,6 +100,7 @@ class LiveView:
         self._min_interval = 0.0 if max_rate_hz is None else 1.0 / max_rate_hz
         self._last_render = -math.inf
         self._stale: str | None = None
+        self._panels = None if channels is None else ChannelPanels(channels)
         self.viewer = MujocoViewer(source.model, host=host, port=port, label=label, show_visibility=show_visibility)
         """The underlying viewer, for panels, HUDs, and visibility groups."""
 
@@ -122,9 +128,11 @@ class LiveView:
         """
         url = self.viewer.open()
         try:
+            if self._panels is not None:
+                self._panels.attach(self.viewer.server)
             self.refresh(force=True)
         except BaseException:
-            self.viewer.close()
+            self.close()
             raise
         if open_browser:
             webbrowser.open(url)
@@ -132,6 +140,8 @@ class LiveView:
 
     def close(self) -> None:
         """Stop the viewer. The simulation is unaffected. Safe to call more than once."""
+        if self._panels is not None:
+            self._panels.detach()
         self.viewer.close()
 
     def refresh(self, force: bool = False) -> RenderFrame | None:
@@ -158,6 +168,8 @@ class LiveView:
             return None
         self.viewer.update(self._source.data)
         self.viewer.set_hud("runtime", f"t = {frame.time.time_ns / 1e9:.3f} s · scene revision {frame.revision}")
+        if self._panels is not None:
+            self._panels.render()
         self._last_render = now
         return frame
 

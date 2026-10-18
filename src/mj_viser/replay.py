@@ -35,14 +35,11 @@ from typing import Any, Protocol
 import mujoco
 import numpy as np
 
+from mj_viser.channels import ChannelModel
 from mj_viser.viewer import MujocoViewer
 
 LABEL = "/replay/status"
 """Scene path of the label that shows the trace's events."""
-
-# Shown kinds; ``stepped`` marks time only, and every applied setpoint is counted but not
-# shown unless the runtime modified it.
-_SHOWN = ("opened", "observed", "compiled", "submitted", "status", "applied", "health", "scene", "violation", "closed")
 
 
 class SnapshotMapping(Protocol):
@@ -83,11 +80,15 @@ class Replay:
     """What was shown when, what was not, and every interval without a frame."""
 
 
-def record_trace(records: Sequence[TraceRecord], world: World, *, label: str | None = None) -> Replay:
+def record_trace(
+    records: Sequence[TraceRecord], world: World, *, description: Any = None, label: str | None = None
+) -> Replay:
     """Convert a trace of ``world`` into a Viser recording.
 
     Recording time is trace time since the first record. Before the first snapshot the
-    world is hidden: there is no recorded state to show.
+    world is hidden: there is no recorded state to show. The label shows what a
+    :class:`~mj_viser.channels.ChannelModel` of the trace shows at each record's time;
+    ``description`` (the robot description) gives it channel quantities and joint names.
 
     Raises:
         ValueError: If the trace is empty, out of order, on more than one clock, or has
@@ -107,8 +108,8 @@ def record_trace(records: Sequence[TraceRecord], world: World, *, label: str | N
         root.visible = False
         extent = float(world.model.stat.extent)
         anchor = np.asarray(world.model.stat.center, float) + [0.0, 0.0, 0.75 * extent]
-        status = _Status()
-        text = server.scene.add_label(LABEL, status.text(0), position=anchor, anchor="bottom-left")
+        channels = ChannelModel(description)
+        text = server.scene.add_label(LABEL, "\n".join(channels.lines()), position=anchor, anchor="bottom-left")
         recorder = server.get_scene_serializer()
         data = mujoco.MjData(world.model)
 
@@ -118,8 +119,9 @@ def record_trace(records: Sequence[TraceRecord], world: World, *, label: str | N
         frame_sequences: list[int] = []
         cursor = t0
         for record, kind in zip(records, kinds, strict=True):
-            line = None if kind == "snapshot" else _describe(kind, record.payload)
-            if kind != "snapshot" and line is None:
+            channels.accept(record)
+            # ``stepped`` marks time only; an applied setpoint is shown only when modified.
+            if kind == "stepped" or (kind == "applied" and not record.payload.modifications):
                 hidden[kind] = hidden.get(kind, 0) + 1
                 continue
             if record.time_ns > cursor:
@@ -133,10 +135,8 @@ def record_trace(records: Sequence[TraceRecord], world: World, *, label: str | N
                 frames.append(record.time_ns)
                 frame_sequences.append(record.sequence)
             else:
-                assert line is not None
-                status.add(kind, record.payload, line)
-                shown.append({"sequence": record.sequence, "time_ns": record.time_ns, "kind": kind, "text": line})
-            text.text = status.text(record.time_ns - t0)
+                shown.append({"sequence": record.sequence, "time_ns": record.time_ns, "kind": kind})
+            text.text = "\n".join(channels.lines())
         end = records[-1].time_ns
         if end > cursor:
             recorder.insert_sleep((end - cursor) / 1e9)
@@ -164,6 +164,7 @@ def record_trace(records: Sequence[TraceRecord], world: World, *, label: str | N
         },
         "intervals_without_frame": _gaps(t0, end, frames),
         "shown": shown,
+        "channels": channels.coverage(),
         "not_shown": dict(sorted(hidden.items())),
         "recording": {
             "duration_s": (end - t0) / 1e9,
@@ -205,93 +206,6 @@ def _gaps(start: int, end: int, frames: list[int]) -> list[dict[str, int | str]]
     return [g for g in gaps if g["to_ns"] != g["from_ns"]]
 
 
-def _values(value: Any) -> str:
-    shape = getattr(value, "shape", None)
-    if shape is not None:
-        return f"{getattr(value, 'dtype', 'array')} {'×'.join(str(n) for n in shape)}"
-    shown = ", ".join(f"{float(v):.3f}" for v in value[:8])
-    return f"[{shown}{', …' if len(value) > 8 else ''}]"
-
-
-def _command(command: Any) -> str:
-    inner = getattr(command, "trajectory", None) or command
-    target = getattr(inner, "group", None) or getattr(inner, "gripper", None)
-    return type(command).__name__ + (f" on {target}" if target else "")
-
-
-def _describe(kind: str, p: Any) -> str | None:
-    """One line for a record, or None for records not shown."""
-    if kind == "opened":
-        return f"opened {p.runtime} ({p.clock_mode} clock)"
-    if kind == "observed":
-        return "; ".join(f"{r.channel} = {_values(r.value)}" for r in p.readings)
-    if kind == "compiled":
-        return f"compiled a trajectory for {p.command.group}"
-    if kind == "submitted":
-        return f"{p.execution}: submitted {_command(p.command)}"
-    if kind == "status":
-        why = f" ({p.diagnostic.code})" if p.diagnostic is not None else ""
-        return f"{p.execution}: {_enum(p.state)}{why}"
-    if kind == "applied":
-        if not p.modifications:
-            return None
-        changes = ", ".join(f"{_enum(m.kind)} {m.target}" for m in p.modifications)
-        return f"{p.execution}: applied, {changes}"
-    if kind == "health":
-        why = f" ({p.diagnostic.code})" if p.diagnostic is not None else ""
-        return f"runtime {_enum(p.state)}{why}"
-    if kind == "scene":
-        held = ", ".join(f"{a.object} held by {a.end_effector}" for a in p.attachments if a.held)
-        return f"scene revision {p.revision}" + (f": {held}" if held else "")
-    if kind == "violation":
-        return f"{p.object} slipped {p.position_error * 1000:.1f} mm, {p.rotation_error:.3f} rad"
-    if kind == "closed":
-        return "closed"
-    return None
-
-
-def _enum(value: Any) -> str:
-    return str(getattr(value, "value", value))
-
-
-class _Status:
-    """What the label shows: time, the scene, each execution's latest event, each
-    channel's latest reading, and the latest runtime event."""
-
-    def __init__(self) -> None:
-        self._scene = "scene revision 0"
-        self._executions: dict[str, dict[str, str]] = {}
-        self._channels: dict[str, str] = {}
-        self._runtime = ""
-
-    def add(self, kind: str, payload: Any, line: str) -> None:
-        if kind == "scene":
-            self._scene = line
-        elif kind == "observed":
-            for r in payload.readings:
-                self._channels[r.channel] = f"{r.channel} = {_values(r.value)}"
-        elif kind == "submitted":
-            self._executions[payload.execution] = {"command": _command(payload.command), "state": "submitted"}
-        elif kind == "status":
-            why = f" ({payload.diagnostic.code})" if payload.diagnostic is not None else ""
-            e = self._executions.setdefault(payload.execution, {"command": "?", "state": "?"})
-            e["state"] += f" → {_enum(payload.state)}{why}"
-        elif kind == "applied":
-            self._executions.setdefault(payload.execution, {"command": "?", "state": "?"})["applied"] = line
-        else:
-            self._runtime = line
-
-    def text(self, since_start_ns: int) -> str:
-        lines = [f"t = {since_start_ns / 1e9:.3f} s", self._scene]
-        for execution, e in self._executions.items():
-            applied = f"; last {e['applied'].split(': ', 1)[1]}" if "applied" in e else ""
-            lines.append(f"{execution}: {e['command']} · {e['state']}{applied}")
-        lines += [self._channels[c] for c in sorted(self._channels)]
-        if self._runtime:
-            lines.append(self._runtime)
-        return "\n".join(lines)
-
-
 def convert_bundle(bundle: str | os.PathLike[str], out_dir: str | os.PathLike[str]) -> dict[str, Any]:
     """Convert an ssrobot run bundle into ``out_dir``, which must not exist.
 
@@ -315,7 +229,8 @@ def convert_bundle(bundle: str | os.PathLike[str], out_dir: str | os.PathLike[st
     ssrobot_mujoco = importlib.import_module("ssrobot.mujoco")
     opened = ssrobot.open_bundle(bundle)
     world = ssrobot_mujoco.materialize_world(opened)
-    replay = record_trace(opened.records, world, label=opened.package.description.name)
+    description = opened.package.description
+    replay = record_trace(opened.records, world, description=description, label=description.name)
     report = replay.report
 
     target.parent.mkdir(parents=True, exist_ok=True)

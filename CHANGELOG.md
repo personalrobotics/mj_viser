@@ -10,6 +10,11 @@
   closed or a browser disconnected; `expected_world` refuses a source for another scene;
   a source that reports `stale_render` or `not_open`, or a frame from another scene,
   leaves the view `stale`. The HUD shows simulation time and scene revision.
+- `ChannelModel` reads trace records, live as an ssrobot sink or from a recorded trace,
+  and keeps each declared channel's latest reading by name and its status, each
+  execution's state history, the scene revision, and recent events (#6). `LiveView(...,
+  channels=)` shows it in per-browser panels with a per-browser plot; replays show it
+  in their scene label and list every channel's coverage in `conversion.json`.
 - `python -m mj_viser.replay BUNDLE OUT_DIR` converts an ssrobot run bundle into a
   native Viser recording and a conversion report (#4). Frames are the run's recorded
   snapshots, with no interpolation; a scene label shows commands, execution states,
