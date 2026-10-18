@@ -8,10 +8,12 @@ Needs ssrobot with its MuJoCo extra and the geodude_assets and ada_assets packag
 Usage: python -I scripts/e2e/ssrobot_live.py OUT_DIR
 
 For each robot, one deterministic motion (its manipulator's joints moved 0.15 rad by a
-two-point trajectory, then settled) runs twice under a JSONL trace:
+two-point trajectory, then settled, every non-image channel observed every 50 ticks) runs
+twice under a JSONL trace:
 
 - without a viewer;
-- with a LiveView refreshed every tick, which meanwhile vandalizes the data it holds.
+- with a LiveView refreshed every tick, with channel panels fed by a ChannelModel sink,
+  which meanwhile vandalizes the data it holds.
   A browser connects and never reads; at tick 100 it disconnects while the view stays
   open and keeps rendering; at tick 200 the view detaches and a new view attaches with a
   new render handle.
@@ -36,11 +38,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import msgspec  # noqa: E402
 import numpy as np  # noqa: E402
-from ssrobot import JointTrajectory, JsonlTrace, RobotContext, load_installed_package  # noqa: E402
+from ssrobot import (  # noqa: E402
+    JointTrajectory,
+    JsonlTrace,
+    ObservationRequest,
+    RobotContext,
+    load_installed_package,
+)
 from ssrobot.mujoco import MujocoRuntime, render_handle  # noqa: E402
 from websockets.sync.client import connect  # noqa: E402
 
-from mj_viser import LiveView  # noqa: E402
+from mj_viser import ChannelModel, LiveView  # noqa: E402
 
 faulthandler.dump_traceback_later(600, exit=True)
 
@@ -49,6 +57,7 @@ DELTA = 0.15  # rad, every joint of the manipulator
 DURATION_NS = 1_000_000_000
 SETTLE_TICKS = 100
 MAX_TICKS = 2_000
+OBSERVE_EVERY = 50  # ticks; both runs observe every channel the runtime provides, except images
 
 
 def _vandalize(view: LiveView) -> None:
@@ -99,6 +108,14 @@ def _check_frame(view: LiveView, runtime: MujocoRuntime, joints: tuple[str, ...]
         raise SystemExit(f"rendered joints {shown} differ from the runtime's {truth}")
 
 
+def _check_channels(channels: ChannelModel, observation: Any) -> None:
+    """The live channel model holds exactly what the runtime just observed."""
+    for reading in observation.readings:
+        _, history = channels.history(reading.channel)
+        if not history or history[-1] != (reading.stamp.time_ns, tuple(float(v) for v in reading.value)):
+            raise SystemExit(f"channel {reading.channel} shows {history[-1:]}, observed {reading}")
+
+
 def run(name: str, out: Path, viewed: bool) -> dict[str, Any]:
     module, manipulator = ROBOTS[name]
     package = load_installed_package(module)
@@ -106,14 +123,23 @@ def run(name: str, out: Path, viewed: bool) -> dict[str, Any]:
     group = next(g for g in description.groups if g.name == description.manipulator(manipulator).group)
     mode = "viewed" if viewed else "plain"
     result: dict[str, Any] = {}
+    channels = ChannelModel(description)  # the viewed run's channel panels read this sink
     with (
         JsonlTrace(out / f"{name}-{mode}.trace.jsonl") as trace,
-        RobotContext(description, runtime := MujocoRuntime(package), sinks=[trace]) as ctx,
+        RobotContext(
+            description, runtime := MujocoRuntime(package), sinks=[trace, channels] if viewed else [trace]
+        ) as ctx,
     ):
+        quantity = {c.name: str(c.quantity) for c in description.channels}
+        request = ObservationRequest(
+            channels=tuple(c for c in ctx.info.channels if quantity[c] not in ("rgb_image", "depth_image"))
+        )
         view = None
         if viewed:
             handle = render_handle(ctx)
-            view = LiveView(handle, expected_world=handle.world, max_rate_hz=None, port=0, label=name)
+            view = LiveView(
+                handle, expected_world=handle.world, channels=channels, max_rate_hz=None, port=0, label=name
+            )
             view.open()
             recorder = view.viewer.server.get_scene_serializer()
             silent = _silent_client(view.viewer.url)
@@ -132,6 +158,10 @@ def run(name: str, out: Path, viewed: bool) -> dict[str, Any]:
         while (not execution.done or ticks < SETTLE_TICKS) and ticks < MAX_TICKS:
             ctx.step()
             ticks += 1
+            if ticks % OBSERVE_EVERY == 0:
+                observation = ctx.observe(request)
+                if viewed:
+                    _check_channels(channels, observation)
             if view is not None:
                 if view.refresh() is not None:
                     frames += 1
@@ -151,12 +181,12 @@ def run(name: str, out: Path, viewed: bool) -> dict[str, Any]:
                     recording = recorder.serialize()  # the first attachment's recording
                     recorder = None
                     view.close()
-                    view = LiveView(render_handle(ctx), max_rate_hz=None, port=0, label=name)
+                    view = LiveView(render_handle(ctx), channels=channels, max_rate_hz=None, port=0, label=name)
                     view.open()
                     detached = True
         result.update(status=execution.status.state.value, ticks=ticks, end=_joint_positions(ctx, group.joints))
         if view is not None:
-            result.update(frames_rendered=frames, reattached=detached)
+            result.update(frames_rendered=frames, reattached=detached, channels=channels.coverage())
             view.close()
             (out / f"{name}.viser").write_bytes(recording)
             result["recording_sha256"] = hashlib.sha256(recording).hexdigest()
@@ -196,6 +226,7 @@ def robot(name: str, out: Path) -> dict[str, Any]:
         "frames_rendered": viewed["frames_rendered"],
         "reattached_without_restart": viewed["reattached"],
         "frames_after_browser_disconnect": viewed["frames_after_browser_disconnect"],
+        "channels": viewed["channels"],
         "traces_identical_with_and_without_viewer": identical,
         "trace_sha256": hashlib.sha256(trace.read_bytes()).hexdigest(),
         "recording_sha256": viewed["recording_sha256"],

@@ -9,15 +9,17 @@ ssrobot's reference scenes (``references/scenes`` in the ssrobot repository).
 Usage: python -I scripts/e2e/ssrobot_replay.py SCENES_DIR OUT_DIR
 
 For each robot, one deterministic run in its reference scene: the manipulator's joints
-move 0.15 rad and settle, a snapshot every 10 ticks, the joints observed at the start
-and the end, and the cylinder declared held and then released partway. The run is
+move 0.15 rad and settle, a snapshot every 10 ticks, every non-image channel observed at the start
+and then every 50 ticks, and the cylinder declared held and then released partway. The run is
 bundled with ``ssrobot.write_bundle``. Then, with MuJoCo runtimes and robot contexts made
 unusable, ``mj_viser.replay`` converts the bundle; the documented command converts a
 moved copy. The checks, on the recording itself:
 
 - every frame puts every body and geom where the runtime had it at that snapshot;
 - each command, status, scene revision, and observation is in the label at its
-  recorded time;
+  recorded time, and the label ends showing exactly what the same channel model, fed
+  live as the run's sink, showed;
+- every declared channel is displayed (with readings), unavailable, or unsupported;
 - both conversions give byte-identical recordings and reports;
 - a bundle with a missing or a changed scene file is refused, and nothing is written;
 - an output directory inside the bundle, directly or through a symlink, is refused, and
@@ -57,7 +59,10 @@ from ssrobot.mujoco import MujocoRuntime, render_handle  # noqa: E402
 
 import mj_viser  # noqa: E402
 from e2e.oracles import check_world_poses, recorded_local_poses, replay_recording  # noqa: E402
-from mj_viser import replay  # noqa: E402
+from mj_viser import (
+    ChannelModel,  # noqa: E402
+    replay,  # noqa: E402
+)
 
 faulthandler.dump_traceback_later(600, exit=True)
 
@@ -68,28 +73,34 @@ SNAPSHOT_EVERY = 10  # ticks
 ATTACH_AT, DETACH_AT = 150, 160  # ticks
 SETTLE_TICKS = 100
 MAX_TICKS = 2_000
+OBSERVE_EVERY = 50  # ticks
 # Viser sends a node's new pose only when it is not np.allclose (rtol 1e-5) to the last one
 # sent, so between nearby frames a body's local pose can lag by about 1e-5 per node.
 POSE_ATOL = 1e-4
 
 
-def run(name: str, scene: Path, out: Path) -> tuple[Path, list[tuple[int, Any, Any]]]:
-    """Run, bundle, and return the bundle and, per snapshot, the runtime's own state."""
+def run(name: str, scene: Path, out: Path) -> tuple[Path, list[tuple[int, Any, Any]], ChannelModel]:
+    """Run, bundle, and return the bundle, per snapshot the runtime's own state, and the
+    channel model a live view would have shown, fed as a sink during the run."""
     module, manipulator_name = ROBOTS[name]
     package = load_installed_package(module)
     description = package.description
     manipulator = description.manipulator(manipulator_name)
     group = next(g for g in description.groups if g.name == manipulator.group)
-    covers = {g.name for g in description.groups if set(group.joints) <= set(g.joints)}
-    channel = next(c.name for c in description.channels if c.quantity == "joint_position" and c.source in covers)
     trace_path = out / "run" / "trace.jsonl"
     trace_path.parent.mkdir(parents=True)
     truth: list[tuple[int, Any, Any]] = []  # (time_ns, model, data) as the runtime had them
+    live = ChannelModel(description)
     with (
         JsonlTrace(trace_path) as trace,
-        RobotContext(description, runtime := MujocoRuntime(package, scene=scene), sinks=[trace]) as ctx,
+        RobotContext(description, runtime := MujocoRuntime(package, scene=scene), sinks=[trace, live]) as ctx,
     ):
         handle = render_handle(ctx)
+        # Every channel the runtime provides, except images (not shown yet).
+        quantity = {c.name: str(c.quantity) for c in description.channels}
+        request = ObservationRequest(
+            channels=tuple(c for c in ctx.info.channels if quantity[c] not in ("rgb_image", "depth_image"))
+        )
 
         def snapshot() -> Any:
             taken = ctx.snapshot()
@@ -98,7 +109,7 @@ def run(name: str, scene: Path, out: Path) -> tuple[Path, list[tuple[int, Any, A
             return taken
 
         start = snapshot()
-        ctx.observe(ObservationRequest(channels=(channel,)))
+        ctx.observe(request)
         positions = dict(zip(start.joints, start.positions, strict=True))
         first = tuple(positions[j] for j in group.joints)
         execution = ctx.submit(
@@ -119,11 +130,13 @@ def run(name: str, scene: Path, out: Path) -> tuple[Path, list[tuple[int, Any, A
                 ctx.detach("cylinder")
             if ticks % SNAPSHOT_EVERY == 0:
                 snapshot()
-        ctx.observe(ObservationRequest(channels=(channel,)))
+            if ticks % OBSERVE_EVERY == 0:
+                ctx.observe(request)
+        ctx.observe(request)
         model_name = runtime.mapping.model_name
     bundle = out / "bundle"
     write_bundle(bundle, trace=trace_path, package=package, model=model_name, scene=scene)
-    return bundle, truth
+    return bundle, truth, live
 
 
 def _no_runtime(*args: Any, **kwargs: Any) -> None:
@@ -165,7 +178,7 @@ def _tree(root: Path) -> dict[str, str]:
     }
 
 
-def check(name: str, bundle: Path, truth: list[tuple[int, Any, Any]], out: Path) -> dict[str, Any]:
+def check(name: str, bundle: Path, truth: list[tuple[int, Any, Any]], live: ChannelModel, out: Path) -> dict[str, Any]:
     converted = out / "converted"
     report = convert_without_runtime(bundle, converted)
     recording = (converted / "recording.viser").read_bytes()
@@ -201,13 +214,41 @@ def check(name: str, bundle: Path, truth: list[tuple[int, Any, Any]], out: Path)
         elif kind == "scene":
             expect = f"scene revision {r.payload.revision}"
         elif kind == "observed":
-            expect = f"{r.payload.readings[0].channel} = [{r.payload.readings[0].value[0]:.3f}"
+            reading = r.payload.readings[-1]
+            expect = f"{reading.channel} = "
+            shown = text_at(texts, (r.time_ns - t0) / 1e9)
+            line = next((x for x in shown.split("\n") if x.startswith(expect)), "")
+            if f"{reading.value[0]:.3f}" not in line or f"(t = {reading.stamp.time_ns / 1e9:.3f} s)" not in line:
+                raise SystemExit(f"{name}: {reading.channel} at {r.time_ns} ns shows {line!r}")
         else:
             continue
         shown = text_at(texts, (r.time_ns - t0) / 1e9)
         if expect not in shown:
             raise SystemExit(f"{name}: {kind} at {r.time_ns} ns not shown; the label reads {shown!r}")
         events.append(kind)
+
+    # Every declared channel is accounted for, and the replay ends showing exactly what
+    # the same model, fed live as the run's sink, showed.
+    opened = ssrobot.open_bundle(bundle)
+    confirmed = set(next(r.payload.channels for r in opened.records if r.kind.value == "opened"))
+    coverage = report["channels"]
+    for c in opened.package.description.channels:
+        quantity = str(c.quantity)
+        want = (
+            "unsupported"
+            if quantity in ("rgb_image", "depth_image")
+            else "displayed"
+            if c.name in confirmed
+            else "unavailable"
+        )
+        got = coverage.get(c.name, {})
+        if got.get("status") != want or (want == "displayed" and not got.get("readings")):
+            raise SystemExit(f"{name}: channel {c.name} is {got}, expected {want} with readings")
+    if coverage != live.coverage():
+        raise SystemExit(f"{name}: replay coverage differs from live")
+    final = texts[-1][1]
+    if final != "\n".join(live.lines()):
+        raise SystemExit(f"{name}: replay ends showing {final!r}; live showed {live.lines()}")
 
     # The documented command, on a moved copy, gives the same recording and report.
     moved = out / "moved" / "bundle"
@@ -270,6 +311,8 @@ def check(name: str, bundle: Path, truth: list[tuple[int, Any, Any]], out: Path)
         "intervals_without_frame": len(report["intervals_without_frame"]),
         "moved_bundle_converts_identically": True,
         "refused": refusals,
+        "channels": coverage,
+        "replay_shows_what_live_showed": True,
         "output_inside_bundle": inside,
         "recording_sha256": hashlib.sha256(recording).hexdigest(),
         "conversion_sha256": hashlib.sha256((converted / "conversion.json").read_bytes()).hexdigest(),
@@ -282,8 +325,8 @@ def main(scenes: str, out_dir: str) -> None:
     robots = {}
     for name in ROBOTS:
         where = out / name
-        bundle, truth = run(name, Path(scenes) / f"{name}-cylinder.xml", where)
-        robots[name] = check(name, bundle, truth, where)
+        bundle, truth, live = run(name, Path(scenes) / f"{name}-cylinder.xml", where)
+        robots[name] = check(name, bundle, truth, live, where)
     report = {
         "robots": robots,
         "versions": {p: version(p) for p in ("mj-viser", "ssrobot", "mujoco", "viser")},
