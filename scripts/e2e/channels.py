@@ -107,6 +107,20 @@ def check_channels(model: mujoco.MjModel) -> dict[str, Any]:
     ):
         if expect not in lines:
             raise SystemExit(f"{expect!r} not among {lines}")
+    # Many executions: only the latest three are shown, so the panel keeps its size.
+    for i in range(2, 6):
+        channels(
+            NS(
+                sequence=90 + i,
+                kind="submitted",
+                time_ns=700_000_000,
+                payload=NS(execution=f"e{i}", command=NS(group="<i>arm</i>" if i == 5 else "arm")),
+            )
+        )
+    shown = [line for line in channels.lines() if line.startswith(("e", "…"))]
+    if shown[0] != "…: 2 earlier" or [x.split(":")[0] for x in shown[1:]] != ["e3", "e4", "e5"]:
+        raise SystemExit(f"executions shown: {shown}")
+    out["executions_shown"] = shown[0]
     channels(NS(sequence=99, kind="stepped", time_ns=1_600_000_000, payload=None))
     status = {c.name: c.status for c in channels.channels()}
     if status["arm_q"] != "stale" or status["arm_qd"] != "unavailable":
@@ -136,7 +150,7 @@ def check_channels(model: mujoco.MjModel) -> dict[str, Any]:
             "div",
             "span",
         }  # panels and the HUD
-        if injected or not any("&lt;b&gt;stalled&lt;/b&gt;" in c for c in markup):
+        if injected or not any("&lt;i&gt;arm&lt;/i&gt;" in c for c in markup):
             raise SystemExit(f"panel markup not escaped: {injected}")
         out["markup_escaped"] = True
 
