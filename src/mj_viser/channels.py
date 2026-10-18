@@ -342,6 +342,9 @@ class _ImagePanel:
 class _ClientPanels:
     def __init__(self, gui: Any) -> None:
         self._gui = gui
+        # A client's panels are rendered from the simulation's thread (each frame) and
+        # from Viser's (when the client connects); one at a time.
+        self._lock = threading.Lock()
         with gui.add_folder("Run", order=10):
             self.run = gui.add_html("")
         with gui.add_folder("Executions", order=11):
@@ -358,6 +361,10 @@ class _ClientPanels:
         """Images sent to this client, by channel: one per new reading at most."""
 
     def render(self, model: ChannelModel) -> None:
+        with self._lock:
+            self._render(model)
+
+    def _render(self, model: ChannelModel) -> None:
         now = model.now_ns
         run = [(f"t = {(now or 0) / 1e9:.3f} s",), (model.scene(),)] + [(e,) for e in model.events()]
         self.run.content = _table(run)
