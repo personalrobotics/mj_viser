@@ -10,6 +10,12 @@
   closed or a browser disconnected; `expected_world` refuses a source for another scene;
   a source that reports `stale_render` or `not_open`, or a frame from another scene,
   leaves the view `stale`. The HUD shows simulation time and scene revision.
+- `python -m mj_viser.replay BUNDLE OUT_DIR` converts an ssrobot run bundle into a
+  native Viser recording and a conversion report (#4). Frames are the run's recorded
+  snapshots, with no interpolation; a scene label shows commands, execution states,
+  scene revisions, observations, violations, and runtime events at their recorded
+  times. The bundle is verified and its world rebuilt by ssrobot before anything renders.
+  `mj_viser.replay.record_trace` converts any trace and world of the same shape.
 
 ## 0.2.0 — 2026-10-17
 

@@ -80,6 +80,23 @@ view.close()            # the simulation keeps running
 - The HUD shows the simulation's time and scene revision. `expected_world=` refuses a source for any other scene.
 - Attach and detach freely: make a new view with a new `render_handle(ctx)`. After the simulation reopens, an old view goes `stale` and renders nothing more.
 
+### Replay a recorded run (ssrobot)
+
+A run saved as an ssrobot run bundle (`ssrobot.write_bundle`) converts into a native Viser recording. The bundle is verified and its world rebuilt by ssrobot without a runtime, before anything renders:
+
+```bash
+python -m mj_viser.replay run-bundle/ replay/
+# replay/recording.viser   the recording
+# replay/conversion.json   what is shown when, what is not, and every interval without a frame
+```
+
+- Frames are the run's `SceneSnapshot`s, at the cadence the run took them with `ctx.snapshot()`. Nothing is interpolated.
+- A label in the scene shows commands with each execution's states, scene revisions, observations, attachment violations, and runtime events at their recorded times.
+- A bundle with a missing or changed file is refused, and nothing is written. Moving the bundle does not change the recording.
+- Play it with Viser's own player: `viser-build-client --out-dir client/`, serve the directory (`python -m http.server`), and open `http://localhost:8000/client/?playbackPath=http://localhost:8000/replay/recording.viser`.
+
+`mj_viser.replay.record_trace(records, world)` converts any trace and world of the same shape, without ssrobot.
+
 ### Sensor plots
 
 ```python
