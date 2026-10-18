@@ -19,7 +19,9 @@ moved copy. The checks, on the recording itself:
 - each command, status, scene revision, and observation is in the label at its
   recorded time;
 - both conversions give byte-identical recordings and reports;
-- a bundle with a missing or a changed scene file is refused, and nothing is written.
+- a bundle with a missing or a changed scene file is refused, and nothing is written;
+- an output directory inside the bundle, directly or through a symlink, is refused, and
+  the bundle stays byte-identical and verifiable.
 
 Writes, per robot, the bundle, recording.viser and conversion.json, and
 ssrobot_replay.json for both robots, to OUT_DIR.
@@ -155,6 +157,14 @@ def text_at(texts: list[tuple[float, str]], t: float) -> str:
     return [s for when, s in texts if when <= t + 1e-9][-1]
 
 
+def _tree(root: Path) -> dict[str, str]:
+    """Every path under ``root`` and its content hash (directories as "dir")."""
+    return {
+        str(p.relative_to(root)): "dir" if p.is_dir() else hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in sorted(root.rglob("*"))
+    }
+
+
 def check(name: str, bundle: Path, truth: list[tuple[int, Any, Any]], out: Path) -> dict[str, Any]:
     converted = out / "converted"
     report = convert_without_runtime(bundle, converted)
@@ -212,6 +222,24 @@ def check(name: str, bundle: Path, truth: list[tuple[int, Any, Any]], out: Path)
     shutil.rmtree(again)
     shutil.rmtree(moved.parent)
 
+    # An output inside the bundle, directly or through a symlink, is refused; the bundle
+    # stays byte-identical and still verifies.
+    before = _tree(bundle)
+    link = out / "bundle-link"
+    link.symlink_to(bundle.resolve(), target_is_directory=True)
+    inside = {}
+    for case, dest in (("inside", bundle / "replay"), ("through_symlink", link / "replay")):
+        result = subprocess.run(
+            [sys.executable, "-I", "-m", "mj_viser.replay", str(bundle), str(dest)], capture_output=True, text=True
+        )
+        if result.returncode != 2 or "inside the bundle" not in result.stderr:
+            raise SystemExit(f"{name}: an output {case} the bundle was not refused: {result}")
+        if _tree(bundle) != before:
+            raise SystemExit(f"{name}: refusing an output {case} the bundle changed the bundle")
+        ssrobot.open_bundle(bundle)
+        inside[case] = "refused; bundle unchanged and verifies"
+    link.unlink()
+
     # A broken scene closure is refused before anything is written.
     scene_file = next(p for p in (bundle / "scene").rglob("*.xml"))
     refusals = {}
@@ -242,6 +270,7 @@ def check(name: str, bundle: Path, truth: list[tuple[int, Any, Any]], out: Path)
         "intervals_without_frame": len(report["intervals_without_frame"]),
         "moved_bundle_converts_identically": True,
         "refused": refusals,
+        "output_inside_bundle": inside,
         "recording_sha256": hashlib.sha256(recording).hexdigest(),
         "conversion_sha256": hashlib.sha256((converted / "conversion.json").read_bytes()).hexdigest(),
     }

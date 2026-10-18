@@ -300,12 +300,17 @@ def convert_bundle(bundle: str | os.PathLike[str], out_dir: str | os.PathLike[st
 
     Raises:
         FileExistsError: If ``out_dir`` exists.
+        ValueError: If ``out_dir`` is inside the bundle, symlinks resolved: writing there
+            would leave the bundle with undeclared files.
         ssrobot.ValidationError: If the bundle does not verify, or its world is not the
             one it recorded.
     """
     target = Path(out_dir)
     if target.exists() or target.is_symlink():
         raise FileExistsError(f"{target} already exists")
+    source = Path(bundle).resolve()
+    if target.resolve().is_relative_to(source):
+        raise ValueError(f"{target} is inside the bundle {bundle}; write the replay elsewhere")
     ssrobot = importlib.import_module("ssrobot")
     ssrobot_mujoco = importlib.import_module("ssrobot.mujoco")
     opened = ssrobot.open_bundle(bundle)
