@@ -244,6 +244,8 @@ def _command(command: Any) -> str:
 
 
 _NO_PLOT = "(none)"
+# A series without a stroke draws nothing.
+_COLORS = ("#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc948", "#b07aa1", "#ff9da7", "#9c755f")
 
 
 class ChannelPanels:
@@ -346,7 +348,13 @@ class _ClientPanels:
             with self._plot_folder:
                 self._plot = self._gui.add_uplot(
                     data=data,
-                    series=(uplot.Series(label="t (s)"), *(uplot.Series(label=label, width=2) for label in labels)),
+                    series=(
+                        uplot.Series(label="t (s)"),
+                        *(
+                            uplot.Series(label=label, stroke=_COLORS[i % len(_COLORS)], width=2)
+                            for i, label in enumerate(labels)
+                        ),
+                    ),
                     aspect=1.5,
                 )
         else:

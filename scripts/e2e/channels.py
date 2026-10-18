@@ -167,6 +167,9 @@ def check_channels(model: mujoco.MjModel) -> dict[str, Any]:
         series = [s["label"] for s in plots[0][0]["props"]["series"]]
         if series != ["t (s)", "shoulder", "elbow"]:
             raise SystemExit(f"plot series {series}")
+        strokes = [s.get("stroke") for s in plots[0][0]["props"]["series"][1:]]
+        if not all(strokes) or len(set(strokes)) != len(strokes):
+            raise SystemExit(f"plotted series must each draw a distinct line: {strokes}")
         out["per_client_plot"] = {"chooser": series, "other": "no plot"}
     finally:
         for ws in clients:
