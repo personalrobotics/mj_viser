@@ -24,8 +24,9 @@ from typing import Any
 import numpy as np
 from viser import uplot
 
-# Quantities shown as images by a later panel; listed as unsupported until then.
-UNSUPPORTED = frozenset({"rgb_image", "depth_image"})
+# Quantities this viewer does not show; depth waits for a consumer.
+UNSUPPORTED = frozenset({"depth_image"})
+IMAGE = "rgb_image"
 _LATEST = 3  # executions shown; earlier ones are counted, so panels and labels keep their size
 
 
@@ -44,6 +45,8 @@ class _Channel:
     stamp_ns: int | None = None
     readings: int = 0
     history: deque[tuple[int, tuple[float, ...]]] = field(default_factory=lambda: deque(maxlen=500))
+    image: np.ndarray | None = None
+    malformed: str | None = None
 
 
 @dataclass(frozen=True)
@@ -55,8 +58,9 @@ class ChannelState:
     """What it measures, e.g. ``joint_position``; ``unknown`` without a description."""
     status: str
     """``current``; ``stale`` (no reading for ``stale_after_ns``); ``awaiting`` (no
-    reading yet); ``unavailable`` (declared, but the runtime does not provide it); or
-    ``unsupported`` (a quantity this viewer does not show yet)."""
+    reading yet); ``malformed`` (the latest reading is not what the quantity needs);
+    ``unavailable`` (declared, but the runtime does not provide it); or ``unsupported``
+    (a quantity this viewer does not show)."""
     text: str
     """The latest reading, with element names, or why there is none."""
     stamp_ns: int | None
@@ -127,7 +131,9 @@ class ChannelModel:
                     channel.value = r.value
                     channel.stamp_ns = r.stamp.time_ns
                     channel.readings += 1
-                    if getattr(r.value, "shape", None) is None:
+                    if channel.quantity == IMAGE:
+                        channel.image, channel.malformed = _image(r.value)
+                    elif getattr(r.value, "shape", None) is None:
                         channel.history.append((r.stamp.time_ns, tuple(float(v) for v in r.value)))
             elif kind == "submitted":
                 self._executions[p.execution] = _Execution(_command(p.command), ["submitted"])
@@ -189,6 +195,13 @@ class ChannelModel:
             c = self._channels[name]
             return c.labels, list(c.history)
 
+    def image(self, name: str) -> tuple[np.ndarray | None, int | None]:
+        """An image channel's latest well-formed image (H×W×3 ``uint8``) and its stamp;
+        no image if there is no reading yet or the latest is malformed."""
+        with self._lock:
+            c = self._channels[name]
+            return c.image, c.stamp_ns
+
     def coverage(self) -> dict[str, dict[str, Any]]:
         """Every channel: ``displayed``, ``unavailable``, or ``unsupported``, with its
         quantity and how many readings it had."""
@@ -206,7 +219,8 @@ class ChannelModel:
         with self._lock:
             lines = [f"t = {(self._now or 0) / 1e9:.3f} s", self.scene()]
             lines += [f"{e}: {text}" for e, text in self.executions(latest=_LATEST)]
-            lines += [f"{c.name} = {c.text}" for c in self.channels() if c.status in ("current", "stale")]
+            shown = ("current", "stale", "malformed")
+            lines += [f"{c.name} = {c.text}" for c in self.channels() if c.status in shown]
             return lines + self.events()[-1:]
 
     def _state(self, c: _Channel) -> ChannelState:
@@ -216,6 +230,8 @@ class ChannelModel:
             return ChannelState(c.name, c.quantity, "unavailable", "the runtime does not provide it", None)
         if c.stamp_ns is None:
             return ChannelState(c.name, c.quantity, "awaiting", "no reading yet", None)
+        if c.malformed is not None:
+            return ChannelState(c.name, c.quantity, "malformed", c.malformed, c.stamp_ns)
         stale = self._now is not None and self._now - c.stamp_ns > self._stale_after
         text = _values(c.value, c.labels) + f" (t = {c.stamp_ns / 1e9:.3f} s{', stale' if stale else ''})"
         return ChannelState(c.name, c.quantity, "stale" if stale else "current", text, c.stamp_ns)
@@ -226,6 +242,19 @@ _LABELS = {
     "wrench": ("fx", "fy", "fz", "tx", "ty", "tz"),
     "gripper_opening": ("opening",),
 }
+
+
+def _image(value: Any) -> tuple[np.ndarray | None, str | None]:
+    """An RGB reading as an H×W×3 ``uint8`` array, or why it is not one."""
+    shape, dtype, data = getattr(value, "shape", None), getattr(value, "dtype", None), getattr(value, "data", None)
+    if shape is None or data is None:
+        return None, "malformed: not an image array"
+    shape = tuple(int(n) for n in shape)
+    if _enum(dtype) != "uint8" or len(shape) != 3 or shape[2] != 3 or min(shape) <= 0:
+        return None, f"malformed: {_enum(dtype)} {'×'.join(map(str, shape))}, not uint8 H×W×3"
+    if len(data) != shape[0] * shape[1] * 3:
+        return None, f"malformed: {len(data)} bytes for {'×'.join(map(str, shape))}"
+    return np.frombuffer(data, np.uint8).reshape(shape), None
 
 
 def _values(value: Any, labels: tuple[str, ...]) -> str:
@@ -303,6 +332,13 @@ def _table(rows: Sequence[Sequence[str]]) -> str:
     return f'<table style="font-size:11px;border-collapse:collapse">{cells}</table>'
 
 
+@dataclass
+class _ImagePanel:
+    caption: Any
+    handle: Any = None
+    stamp: int | None = None
+
+
 class _ClientPanels:
     def __init__(self, gui: Any) -> None:
         self._gui = gui
@@ -314,8 +350,12 @@ class _ClientPanels:
             self.channels = gui.add_html("")
         with gui.add_folder("Plot", order=13) as self._plot_folder:
             self.choice = gui.add_dropdown("Channel", (_NO_PLOT,), initial_value=_NO_PLOT)
+        self._images_folder = gui.add_folder("Images", order=14)
         self._plot: Any = None
         self._plotted: str | None = None
+        self._images: dict[str, _ImagePanel] = {}
+        self.images_sent: dict[str, int] = {}
+        """Images sent to this client, by channel: one per new reading at most."""
 
     def render(self, model: ChannelModel) -> None:
         now = model.now_ns
@@ -329,6 +369,32 @@ class _ClientPanels:
         if self.choice.options != (_NO_PLOT, *numeric):
             self.choice.options = (_NO_PLOT, *numeric)
         self._render_plot(model, self.choice.value)
+        for c in states:
+            if c.quantity == IMAGE:
+                self._render_image(model, c)
+
+    def _render_image(self, model: ChannelModel, c: ChannelState) -> None:
+        panel = self._images.get(c.name)
+        if panel is None:
+            with self._images_folder:
+                panel = self._images[c.name] = _ImagePanel(self._gui.add_html(""))
+        panel.caption.content = _table([(c.name, c.status, c.text)])
+        image, stamp = model.image(c.name)
+        if image is None or c.status not in ("current", "stale"):
+            if panel.handle is not None:
+                panel.handle.visible = False
+            return
+        if panel.handle is None:
+            with self._images_folder:
+                panel.handle = self._gui.add_image(image, label=c.name, format="jpeg")
+        elif stamp != panel.stamp:
+            panel.handle.image = image
+        if not panel.handle.visible:
+            panel.handle.visible = True
+        if stamp == panel.stamp:
+            return
+        panel.stamp = stamp
+        self.images_sent[c.name] = self.images_sent.get(c.name, 0) + 1
 
     def _render_plot(self, model: ChannelModel, name: str) -> None:
         if name != self._plotted:

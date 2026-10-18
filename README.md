@@ -91,12 +91,13 @@ with RobotContext(description, runtime, sinks=[trace, channels]) as ctx:
 ```
 
 Each browser gets its own panels:
-- each declared channel's latest reading by joint or component name, with its time, marked `current`, `stale`, `awaiting`, `unavailable` (the runtime does not provide it), or `unsupported` (images, for now);
+- each declared channel's latest reading by joint or component name, with its time, marked `current`, `stale`, `awaiting`, `malformed`, `unavailable` (the runtime does not provide it), or `unsupported` (depth images);
+- each RGB camera channel's latest image, sent at most once per new reading;
 - each execution's command and state history;
 - the scene revision and what is held, and recent runtime events;
 - a plot of the channel that browser picks.
 
-The panels only show; they hold no control of the run, and one browser's choices never reach another. A replay shows the same model in its scene label.
+The panels only show; they hold no control of the run, and one browser's choices never reach another. A replay shows the same model in its scene label, with camera images beside it.
 
 ### Replay a recorded run (ssrobot)
 
@@ -109,7 +110,7 @@ python -m mj_viser.replay run-bundle/ replay/
 ```
 
 - Frames are the run's `SceneSnapshot`s, at the cadence the run took them with `ctx.snapshot()`. Nothing is interpolated.
-- A label in the scene shows what a `ChannelModel` of the trace shows at each record's time: named channel readings, each execution's states, the scene revision, and runtime events. `conversion.json` lists every declared channel as displayed, unavailable, or unsupported.
+- A label in the scene shows what a `ChannelModel` of the trace shows at each record's time: named channel readings, each execution's states, the scene revision, and runtime events. Camera images appear beside the label at their recorded times. `conversion.json` lists every declared channel as displayed, malformed, unavailable, or unsupported, and every image reading as shown or malformed.
 - A bundle with a missing or changed file is refused, and nothing is written. Moving the bundle does not change the recording.
 - Play it with Viser's own player: `viser-build-client --out-dir client/`, serve the directory (`python -m http.server`), and open `http://localhost:8000/client/?playbackPath=http://localhost:8000/replay/recording.viser`.
 
