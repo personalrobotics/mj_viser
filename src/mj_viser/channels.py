@@ -216,8 +216,8 @@ class ChannelModel:
             return ChannelState(c.name, c.quantity, "unavailable", "the runtime does not provide it", None)
         if c.stamp_ns is None:
             return ChannelState(c.name, c.quantity, "awaiting", "no reading yet", None)
-        text = _values(c.value, c.labels) + f" (t = {c.stamp_ns / 1e9:.3f} s)"
         stale = self._now is not None and self._now - c.stamp_ns > self._stale_after
+        text = _values(c.value, c.labels) + f" (t = {c.stamp_ns / 1e9:.3f} s{', stale' if stale else ''})"
         return ChannelState(c.name, c.quantity, "stale" if stale else "current", text, c.stamp_ns)
 
 
