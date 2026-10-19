@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-10-19
 
 ### Changed
 
@@ -43,6 +43,14 @@
   go stale when the scene changes, and a supplied invalid validation's first invalid
   state is shown as reported. `record_preview` writes a preview as a recording.
   `LiveView.frame` is the latest frame rendered.
+
+### Known limitations
+
+- Viser sends a node's new pose only when it is not `np.allclose` (rtol 1e-5) to the
+  last one sent, so a body can lag a supplied state by about 1e-5 per local transform,
+  live and in recordings (#44).
+- ssrobot traces carry contact channels per declared pair, not contact geometry, so
+  ssrobot replays show contact channels but no contact points or arrows (#56).
 
 ## 0.3.0 — 2026-10-18
 
