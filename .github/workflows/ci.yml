@@ -158,9 +158,9 @@ jobs:
         run: |
           uv venv --quiet .ssrobot
           uv pip install --quiet --python .ssrobot/bin/python "$(ls dist/mj_viser-*.whl)" \
-            "ssrobot[mujoco] @ git+https://github.com/personalrobotics/ssrobot.git@013ece3aa37b5b1244ad9014e1d95d6ec514ccce" \
-            "geodude-assets @ git+https://github.com/personalrobotics/geodude_assets.git@30ca5ff8706e5d856fd22d2511c879026ee45bb3" \
-            "ada-assets @ git+https://github.com/personalrobotics/ada_assets.git@66b2d12ffb70fe217c64c45691166fc43d1b203b"
+            "ssrobot[mujoco] @ git+https://github.com/personalrobotics/ssrobot.git@116f3c8214a6b3cc297a640a0ddf622c6fe497db" \
+            "geodude-assets @ git+https://github.com/personalrobotics/geodude_assets.git@4f57fc45508c5dcad0c2426f48bb046d499340d0" \
+            "ada-assets @ git+https://github.com/personalrobotics/ada_assets.git@b9880d45457dde90ae11f3704b6d8b1b6e99d00d"
 
       # Software OpenGL: ADA's wrist camera is observed, and MuJoCo renders it.
       - name: Install OSMesa
@@ -192,7 +192,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: personalrobotics/ssrobot
-          ref: 013ece3aa37b5b1244ad9014e1d95d6ec514ccce
+          ref: 116f3c8214a6b3cc297a640a0ddf622c6fe497db
           path: .ssrobot-src
           sparse-checkout: references
           persist-credentials: false
@@ -215,9 +215,9 @@ jobs:
         run: |
           uv venv --quiet .ssrobot
           uv pip install --quiet --python .ssrobot/bin/python "$(ls dist/mj_viser-*.whl)" \
-            "ssrobot[mujoco] @ git+https://github.com/personalrobotics/ssrobot.git@013ece3aa37b5b1244ad9014e1d95d6ec514ccce" \
-            "geodude-assets @ git+https://github.com/personalrobotics/geodude_assets.git@30ca5ff8706e5d856fd22d2511c879026ee45bb3" \
-            "ada-assets @ git+https://github.com/personalrobotics/ada_assets.git@66b2d12ffb70fe217c64c45691166fc43d1b203b"
+            "ssrobot[mujoco] @ git+https://github.com/personalrobotics/ssrobot.git@116f3c8214a6b3cc297a640a0ddf622c6fe497db" \
+            "geodude-assets @ git+https://github.com/personalrobotics/geodude_assets.git@4f57fc45508c5dcad0c2426f48bb046d499340d0" \
+            "ada-assets @ git+https://github.com/personalrobotics/ada_assets.git@b9880d45457dde90ae11f3704b6d8b1b6e99d00d"
 
       # Software OpenGL: ADA's wrist camera is observed, and MuJoCo renders it.
       - name: Install OSMesa
@@ -256,7 +256,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: personalrobotics/ssrobot
-          ref: 013ece3aa37b5b1244ad9014e1d95d6ec514ccce
+          ref: 116f3c8214a6b3cc297a640a0ddf622c6fe497db
           path: .ssrobot-src
           sparse-checkout: references
           persist-credentials: false
@@ -279,9 +279,9 @@ jobs:
         run: |
           uv venv --quiet .ssrobot
           uv pip install --quiet --python .ssrobot/bin/python "$(ls dist/mj_viser-*.whl)" \
-            "ssrobot[mujoco,planning] @ git+https://github.com/personalrobotics/ssrobot.git@013ece3aa37b5b1244ad9014e1d95d6ec514ccce" \
-            "geodude-assets @ git+https://github.com/personalrobotics/geodude_assets.git@30ca5ff8706e5d856fd22d2511c879026ee45bb3" \
-            "ada-assets @ git+https://github.com/personalrobotics/ada_assets.git@66b2d12ffb70fe217c64c45691166fc43d1b203b"
+            "ssrobot[mujoco,planning] @ git+https://github.com/personalrobotics/ssrobot.git@116f3c8214a6b3cc297a640a0ddf622c6fe497db" \
+            "geodude-assets @ git+https://github.com/personalrobotics/geodude_assets.git@4f57fc45508c5dcad0c2426f48bb046d499340d0" \
+            "ada-assets @ git+https://github.com/personalrobotics/ada_assets.git@b9880d45457dde90ae11f3704b6d8b1b6e99d00d"
 
       # Software OpenGL: ADA's wrist camera is observed, and MuJoCo renders it.
       - name: Install OSMesa
