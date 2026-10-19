@@ -61,7 +61,7 @@ viewer.close()                     # releases the port; open() again to reuse th
 
 ### Follow a running simulation (ssrobot)
 
-`LiveView` follows a simulation through a read-only render source (`mj_viser.RenderSource`): an object with its own `model` and `data`, a `world` identity, and `capture()`, which copies the simulation's state into `data` and returns a frame (`time_ns`, `revision`, `world`), or raises `mj_viser.SourceStale` once it can no longer describe the simulation. Any simulator can provide one. For ssrobot, `mj_viser.integrations.ssrobot.render_source(ctx)` adapts its render handle; that module is the only part of mj_viser that imports ssrobot.
+`LiveView` follows a simulation through a read-only render source (`mj_viser.RenderSource`): an object with its own `model` and `data`, a `world` identity, and `capture()`, which copies the simulation's state into `data` and returns a frame (`time_ns`, `revision`, `world`), or raises `mj_viser.SourceStale` once it can no longer describe the simulation. Any runtime that can expose a MuJoCo model and state can provide one. For ssrobot, `mj_viser.integrations.ssrobot.render_source(ctx)` adapts its render handle; for live viewing, that module is the only part of mj_viser that imports ssrobot.
 
 ```python
 from mj_viser import LiveView

@@ -20,8 +20,8 @@ twice under a JSONL trace:
 
 The two traces must be byte-identical. The viewed run also records a .viser file and
 checks each rendered frame against the runtime's own joint positions. Afterwards a view
-built for another scene is refused, and a view whose runtime reopened goes stale instead
-of raising. Writes ssrobot_live.json, the traces, and the recordings to OUT_DIR.
+built for another scene is refused, and a view onto a runtime that reopened refuses to open,
+reporting why. Writes ssrobot_live.json, the traces, and the recordings to OUT_DIR.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ from ssrobot import (  # noqa: E402
 from ssrobot.mujoco import MujocoRuntime  # noqa: E402
 from websockets.sync.client import connect  # noqa: E402
 
-from mj_viser import ChannelModel, LiveView  # noqa: E402
+from mj_viser import ChannelModel, LiveView, SourceStale  # noqa: E402
 from mj_viser.integrations.ssrobot import render_source  # noqa: E402
 
 faulthandler.dump_traceback_later(600, exit=True)
@@ -198,12 +198,15 @@ def run(name: str, out: Path, viewed: bool) -> dict[str, Any]:
             result["recording_sha256"] = hashlib.sha256(recording).hexdigest()
             stale_view = LiveView(render_source(ctx), max_rate_hz=None, port=0)
     if viewed:
-        # The runtime reopens: the old handle no longer describes it, so the view goes stale.
+        # The runtime reopens: the old handle no longer describes it, so the view cannot
+        # open onto it, and nothing is left showing.
         with RobotContext(description, runtime):  # the same runtime, reopened
-            stale_view.open()
-            refreshed = stale_view.refresh(force=True)
-            result["after_reopen"] = {"rendered": refreshed is not None, "stale": stale_view.stale}
-            stale_view.close()
+            try:
+                stale_view.open()
+            except SourceStale as e:
+                result["after_reopen"] = {"rendered": False, "stale": e.reason, "open": stale_view.is_open}
+            else:
+                raise SystemExit("a view opened onto a reopened runtime")
     return result
 
 
@@ -214,7 +217,7 @@ def robot(name: str, out: Path) -> dict[str, Any]:
         raise SystemExit(f"{name}: the trace changed when a viewer was attached")
     if plain["end"] != viewed["end"] or plain["status"] != viewed["status"]:
         raise SystemExit(f"{name}: the motion's outcome changed when a viewer was attached")
-    if viewed["after_reopen"] != {"rendered": False, "stale": "stale_render"}:
+    if viewed["after_reopen"] != {"rendered": False, "stale": "stale_render", "open": False}:
         raise SystemExit(f"{name}: a view on a reopened runtime did {viewed['after_reopen']}")
     package = load_installed_package(ROBOTS[name][0])
     with RobotContext(package.description, MujocoRuntime(package)) as ctx:

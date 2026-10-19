@@ -5,8 +5,9 @@
 
 A render source (:class:`RenderSource`) owns its own copy of the model and state,
 refreshed only when asked, so nothing a viewer does can reach the simulation. Pass one
-to :class:`LiveView` and call :meth:`LiveView.refresh` from your loop. Any simulator
-can provide one; ``mj_viser.integrations.ssrobot.render_source(ctx)`` adapts ssrobot's.
+to :class:`LiveView` and call :meth:`LiveView.refresh` from your loop. Any runtime that
+can expose a MuJoCo model and state can provide one;
+``mj_viser.integrations.ssrobot.render_source(ctx)`` adapts ssrobot's.
 """
 
 from __future__ import annotations
@@ -138,14 +139,19 @@ class LiveView:
     def open(self, open_browser: bool = False) -> str:
         """Start the viewer and show the simulation's current state. Returns the URL.
 
-        If showing the first frame fails, the viewer is closed again, releasing its
-        port, and the error propagates.
+        The first frame must render: if it cannot, the viewer is closed again, releasing
+        its port, and nothing is left showing the model's default state.
+
+        Raises:
+            SourceStale: If the source is stale at the first capture, or its first frame
+                describes another world (reason ``"world_changed"``).
         """
         url = self.viewer.open()
         try:
             if self._panels is not None:
                 self._panels.attach(self.viewer.server)
-            self.refresh(force=True)
+            if self.refresh(force=True) is None:
+                raise SourceStale(self._stale or "no frame")
         except BaseException:
             self.close()
             raise
