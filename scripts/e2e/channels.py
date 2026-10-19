@@ -21,9 +21,11 @@ from typing import Any
 
 import msgspec
 import mujoco
+import numpy as np
 import zstandard
 from websockets.sync.client import connect
 
+from e2e.fixtures import expect_raises
 from e2e.live_view import _Source
 from e2e.oracles import tags_in
 from mj_viser import ChannelBoard, LiveView
@@ -97,6 +99,19 @@ def check_channels(model: mujoco.MjModel) -> dict[str, Any]:
     if status["arm_q"] != "stale" or status["arm_qd"] != "unavailable":
         raise SystemExit(f"after 1.1 s without readings: {status}")
     out["stale_after_1s"] = status["arm_q"]
+
+    # A channel's kind is part of its readings: changing it starts the channel over.
+    board.declare("probe", kind="values")
+    board.reading("probe", 1_600_000_000, (1.0, 2.0))
+    board.declare("probe", kind="image")
+    after_image = next(c for c in board.channels() if c.name == "probe")
+    board.reading("probe", 1_600_000_000, np.zeros((2, 2, 3), np.uint8))
+    board.declare("probe", kind="values")
+    after_values = next(c for c in board.channels() if c.name == "probe")
+    if (after_image.status, after_values.status) != ("awaiting", "awaiting"):
+        raise SystemExit(f"after a kind change: {after_image}, then {after_values}")
+    out["kind_change_starts_over"] = True
+    out["unknown_kind"] = expect_raises(ValueError, lambda: board.declare("probe", kind="vector"))  # type: ignore[arg-type]
     channels = board
 
     # Live: two browsers, one picks a channel to plot.

@@ -90,4 +90,22 @@ def check_trace_channels() -> dict[str, Any]:
     if status["arm_q"] != "stale" or status["arm_qd"] != "unavailable":
         raise SystemExit(f"after 1.1 s without readings: {status}")
     out["stale_after_1s"] = status["arm_q"]
+
+    # Without a description nothing in the trace is dropped: every named channel is
+    # listed, as of unknown quantity, and a numeric one is shown once its reading comes.
+    camera = NS(dtype="uint8", shape=(2, 2, 3), data=bytes(12))
+    undescribed = TraceChannels(None)
+    for kind, t, payload in (
+        ("opened", 0, NS(runtime="stand-in", clock_mode="manual", channels=("arm_q", "wrist_rgb"))),
+        ("observed", 0, NS(readings=(_reading("arm_q", 0, (0.3, 0.1)), _reading("wrist_rgb", 0, camera)))),
+        ("observed", 1, NS(readings=(_reading("extra_rgb", 1, camera),))),
+    ):
+        undescribed(NS(sequence=t, kind=kind, time_ns=t, payload=payload))
+    coverage = {n: (c["status"], c["readings"]) for n, c in undescribed.board.coverage().items()}
+    expected = {"arm_q": ("displayed", 1), "extra_rgb": ("unsupported", 1), "wrist_rgb": ("unsupported", 1)}
+    if coverage != expected:
+        raise SystemExit(f"without a description: {coverage}, expected {expected}")
+    if "arm_q = [0.300, 0.100] (t = 0.000 s)" not in undescribed.board.lines():
+        raise SystemExit(f"an undescribed numeric channel is not shown: {undescribed.board.lines()}")
+    out["without_description"] = coverage
     return out

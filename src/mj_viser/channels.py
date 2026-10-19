@@ -95,13 +95,21 @@ class ChannelBoard:
     ) -> None:
         """Declare a channel: ``values`` (a vector, named element-wise by ``labels``),
         ``image`` (H×W×3 ``uint8``), or ``unsupported`` (listed, with ``note``, but not
-        shown). Declaring again updates the declaration and keeps the readings."""
+        shown). Declaring again updates the declaration and keeps the readings, unless
+        the kind changes: a reading of one kind is not one of another, so then the
+        channel starts over with none.
+
+        Raises:
+            ValueError: If ``kind`` is not one of the three.
+        """
+        if kind not in _KINDS:
+            raise ValueError(f"{name}: kind must be one of {sorted(_KINDS)}, got {kind!r}")
         with self._lock:
             c = self._channels.get(name)
-            if c is None:
+            if c is None or c.kind != kind:
                 self._channels[name] = _Channel(name, kind, quantity, tuple(labels), note, available)
             else:
-                c.kind, c.quantity, c.labels, c.available, c.note = kind, quantity, tuple(labels), available, note
+                c.quantity, c.labels, c.available, c.note = quantity, tuple(labels), available, note
 
     def set_available(self, name: str, available: bool) -> None:
         """Mark a declared channel as provided, or not (``unavailable``)."""
@@ -111,7 +119,8 @@ class ChannelBoard:
     def reading(self, name: str, stamp_ns: int, value: Sequence[float] | np.ndarray) -> None:
         """A channel's reading taken at ``stamp_ns``. An undeclared channel is declared
         from it. An image channel's reading that is not an H×W×3 ``uint8`` array is
-        recorded as malformed."""
+        recorded as malformed. The board keeps its own copy: the caller may reuse its
+        buffer."""
         with self._lock:
             c = self._channels.get(name)
             if c is None:
@@ -120,7 +129,8 @@ class ChannelBoard:
             c.stamp_ns = int(stamp_ns)
             c.readings += 1
             if c.kind == "image":
-                c.image, c.malformed = _image(value)
+                c.image, reason = rgb_image(value)
+                c.malformed = reason or None
             elif c.kind == "values":
                 c.values = tuple(float(v) for v in value)
                 c.malformed = None
@@ -179,8 +189,8 @@ class ChannelBoard:
             return c.labels, list(c.history)
 
     def image(self, name: str) -> tuple[np.ndarray | None, int | None]:
-        """An image channel's latest well-formed image and its stamp; no image if there
-        is no reading yet or the latest is malformed."""
+        """An image channel's latest well-formed image (read-only) and its stamp; no
+        image if there is no reading yet or the latest is malformed."""
         with self._lock:
             c = self._channels[name]
             return c.image, c.stamp_ns
@@ -230,13 +240,18 @@ class ChannelBoard:
         )
 
 
-def _image(value: Any) -> tuple[np.ndarray | None, str | None]:
-    """An image reading as an H×W×3 ``uint8`` array, or why it is not one."""
+_KINDS = frozenset({"values", "image", "unsupported"})
+
+
+def rgb_image(value: Any) -> tuple[np.ndarray | None, str]:
+    """``value`` as a read-only copy of an H×W×3 ``uint8`` image, or why it is not one."""
     if not isinstance(value, np.ndarray):
-        return None, "malformed: not an image array"
+        return None, f"malformed: a {type(value).__name__}, not an image array"
     if value.dtype != np.uint8 or value.ndim != 3 or value.shape[2] != 3 or min(value.shape) <= 0:
         return None, f"malformed: {value.dtype} {'×'.join(map(str, value.shape))}, not uint8 H×W×3"
-    return value, None
+    image = np.array(value, copy=True)
+    image.flags.writeable = False
+    return image, ""
 
 
 def _values(values: Sequence[float], labels: tuple[str, ...]) -> str:

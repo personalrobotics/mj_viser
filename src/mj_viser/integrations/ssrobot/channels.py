@@ -28,7 +28,8 @@ _LABELS = {
     "wrench": ("fx", "fy", "fz", "tx", "ty", "tz"),
     "gripper_opening": ("opening",),
 }
-_UNSHOWN = {"depth_image": "depth images are not shown"}
+_UNSHOWN = {"depth_image": "depth images are not shown", "unknown": "not described: quantity unknown"}
+_UNKNOWN = _UNSHOWN["unknown"]
 
 
 def _enum(value: Any) -> str:
@@ -42,7 +43,9 @@ class TraceChannels:
         """
         Args:
             description: The robot description (``ctx.description``), for channel
-                quantities and names. Without it, channels are named by the trace.
+                quantities and names. Without it, or for a channel it does not name,
+                a channel is listed by the trace's name, as unsupported (quantity
+                unknown) until a numeric reading shows it is a vector of values.
             stale_after_ns: As for :class:`mj_viser.ChannelBoard`.
         """
         self.board = ChannelBoard(stale_after_ns=stale_after_ns)
@@ -77,19 +80,27 @@ class TraceChannels:
             for name in self._quantity:
                 if self._quantity[name] not in _UNSHOWN:
                     board.set_available(name, name in confirmed)
+            for name in sorted(confirmed - set(self._quantity)):
+                self._unknown(name)
             board.event(f"opened {p.runtime} ({_enum(p.clock_mode)} clock)")
         elif kind == "observed":
             for r in p.readings:
                 stamp = r.stamp.time_ns
+                # Not described: listed as of unknown quantity, and shown once a numeric
+                # reading says it is a vector; nothing in the trace is dropped.
+                self._unknown(r.channel)
+                if self._quantity[r.channel] == "unknown" and getattr(r.value, "shape", None) is None:
+                    self._quantity[r.channel] = "unknown numeric"
+                    board.declare(r.channel, quantity="unknown")
                 if self._quantity.get(r.channel) == "rgb_image":
                     image, reason = _image(r.value)
                     if image is None:
                         board.malformed(r.channel, stamp, reason)
                     else:
                         board.reading(r.channel, stamp, image)
-                elif self._quantity.get(r.channel) in _UNSHOWN:
-                    continue
-                elif getattr(r.value, "shape", None) is None:
+                elif self._quantity[r.channel] in _UNSHOWN or getattr(r.value, "shape", None) is not None:
+                    board.reading(r.channel, stamp, ())  # counted, not shown
+                else:
                     board.reading(r.channel, stamp, r.value)
         elif kind == "submitted":
             self._executions[p.execution] = (_command(p.command), ["submitted"])
@@ -113,6 +124,12 @@ class TraceChannels:
             board.event(f"compiled a trajectory for {p.command.group}")
         elif kind == "closed":
             board.event("closed")
+
+    def _unknown(self, name: str) -> None:
+        """List a channel the description does not name, until its readings say more."""
+        if name not in self._quantity:
+            self._quantity[name] = "unknown"
+            self.board.declare(name, kind="unsupported", quantity="unknown", note=_UNKNOWN)
 
     def _show_executions(self) -> None:
         """The latest executions as status lines, after a count of earlier ones."""
