@@ -17,12 +17,15 @@ import mujoco
 import numpy as np
 
 from mj_viser.channels import rgb_image
+from mj_viser.contacts import ContactSet, contact_set, contact_vectors
 from mj_viser.viewer import MujocoViewer
 
 TEXT = "/recording/text"
 """Scene path of the recorded text label."""
 IMAGES = "/recording/images"
 """Scene path under which recorded images are placed, one per name."""
+CONTACTS = "/recording/contacts"
+"""Scene path of recorded contact points, normals, and force arrows."""
 
 # Images stand upright beside the text: the image plane turned 90° about x.
 _UPRIGHT = (np.cos(np.pi / 4), np.sin(np.pi / 4), 0.0, 0.0)
@@ -37,7 +40,24 @@ class StateRecorder:
     model shows before the first :meth:`show`: there is no state to show yet.
     """
 
-    def __init__(self, model: mujoco.MjModel, *, label: str | None = None, hide_until_first_state: bool = True) -> None:
+    def __init__(
+        self,
+        model: mujoco.MjModel,
+        *,
+        label: str | None = None,
+        hide_until_first_state: bool = True,
+        contacts: bool = False,
+        contact_scale_m_per_n: float = 0.01,
+    ) -> None:
+        """
+        Args:
+            model: The model whose states are recorded.
+            label: As for :class:`MujocoViewer`.
+            hide_until_first_state: Hide the model until the first :meth:`show`.
+            contacts: Draw each shown state's contacts (points, normals, and force
+                arrows of ``contact_scale_m_per_n`` meters per newton), and log them in
+                :attr:`contact_log`.
+        """
         self._model = model
         self._viewer = MujocoViewer(model, port=0, label=label, show_visibility=False)
         self._viewer.open()
@@ -55,6 +75,11 @@ class StateRecorder:
         self._cursor = 0
         self.states_ns: list[int] = []
         """The time of each state shown, from the first :meth:`advance`."""
+        self._contacts = contacts
+        self._contact_scale = contact_scale_m_per_n
+        self._contact_nodes: dict[str, Any] = {}
+        self.contact_log: list[dict[str, Any]] = []
+        """Per state shown, with ``contacts=True``: every contact and what was drawn."""
 
     def advance(self, time_ns: int) -> None:
         """Move the clock to ``time_ns``. The first call sets the recording's start.
@@ -77,6 +102,8 @@ class StateRecorder:
         if not self._shown:
             self._root.visible = self._shown = True
         self.states_ns.append(self._cursor)
+        if self._contacts:
+            self._draw_contacts(contact_set(self._model, self._viewer.data))
 
     def text(self, lines: Sequence[str]) -> None:
         """Show these lines from now on."""
@@ -108,6 +135,39 @@ class StateRecorder:
         position = self._anchor + [width * (0.6 + 1.1 * len(self._images)), 0.0, -0.5 * height]
         self._images[name] = self._viewer.server.scene.add_image(
             f"{IMAGES}/{name}", image, width, height, format="jpeg", wxyz=_UPRIGHT, position=position
+        )
+
+    def _draw_contacts(self, contacts: ContactSet) -> None:
+        for node in self._contact_nodes.values():
+            node.remove()
+        self._contact_nodes = {}
+        drawn = contact_vectors(contacts, self._contact_scale)
+        scene = self._viewer.server.scene
+        if len(drawn["points"]):
+            self._contact_nodes["points"] = scene.add_point_cloud(
+                f"{CONTACTS}/points", drawn["points"], (255, 200, 0), point_size=0.01, point_shape="circle"
+            )
+            self._contact_nodes["normals"] = scene.add_arrows(f"{CONTACTS}/normals", drawn["normals"], (60, 160, 255))
+        if len(drawn["forces"]):
+            self._contact_nodes["forces"] = scene.add_arrows(f"{CONTACTS}/forces", drawn["forces"], (230, 60, 60))
+        self.contact_log.append(
+            {
+                "time_ns": self._cursor,
+                "total": contacts.total,
+                "truncated": contacts.truncated,
+                "contacts": [
+                    {
+                        "bodies": [c.first, c.second],
+                        "position_m": list(c.position),
+                        "normal": list(c.normal),
+                        "force_n": None if c.force is None else list(c.force),
+                        "distance_m": c.distance,
+                    }
+                    for c in contacts.contacts
+                ],
+                "drawn": {k: len(v) for k, v in drawn.items()},
+                "scale_m_per_n": self._contact_scale,
+            }
         )
 
     def finish(self) -> bytes:

@@ -20,7 +20,7 @@ mj_viser renders MuJoCo state; it does not step simulations or command robots. Y
 - **Click-to-select** — click any geom to show its body name, to that browser only; the label follows the object
 - **Sites** — MuJoCo sites drawn as their shapes, beneath their bodies
 - **Live view** — `LiveView` follows a running simulation through a read-only source, without being able to affect it
-- **Channels, recordings, and previews** — `ChannelBoard` panels, `StateRecorder` recordings, and `MotionPreview` ghosts, for any MuJoCo model
+- **Channels, recordings, previews, and contacts** — `ChannelBoard` panels, `StateRecorder` recordings, `MotionPreview` ghosts, and `ContactOverlay` points, normals, and force arrows, for any MuJoCo model
 - **ssrobot integration** — optional `mj_viser.integrations.ssrobot`: live view, plan preview, and run-bundle replay for ssrobot runs
 - **Visibility groups** — show or hide MuJoCo geom and site groups, from the panel or `set_visible_groups()`
 - **Loopback by default** — binds `127.0.0.1`; serving other machines is an explicit `host=` choice
@@ -125,6 +125,18 @@ Nothing is interpolated: each state shows from its time until the next. Play a r
 
 `mj_viser.MotionPreview` shows named `JointMotion`s as a translucent ghost of the bodies they move. Each browser picks one and scrubs its waypoints, or its timed motion at exact times, in its own scene. A motion may carry a `Highlight`, such as an invalid state, shown with its caption. Nothing is executed. `mj_viser.preview.record_motion` writes a motion as a recording.
 
+### Contacts
+
+`mj_viser.ContactOverlay` draws the contacts of the state the viewer shows, as the simulation computed them (nothing is recomputed): a point, a normal, and a force arrow per contact, from MuJoCo's own contact list and `mj_contactForce`, named by body. Each browser chooses whether contacts show and how long a newton's arrow is; the caption gives the frame's time, the scale, and each contact's force in newtons, and says so when there are none or more than are drawn.
+
+```python
+from mj_viser import ContactOverlay
+
+viewer.add_panel(ContactOverlay())   # or live.viewer.add_panel(...)
+```
+
+`mj_viser.contact_set(model, data)` returns the same contacts as data, and `StateRecorder(model, contacts=True)` records them with each state, logging every contact and arrow drawn.
+
 ### Sensor plots
 
 ```python
@@ -226,7 +238,7 @@ with RobotContext(description, runtime, sinks=[trace, channels]) as ctx:
         view.refresh()
 ```
 
-`render_source(ctx)` adapts ssrobot's render handle; traces are byte-identical with and without a view attached. After the runtime reopens, an old view goes stale. `TraceChannels` shows the description's channels by joint and component name, each execution's command and state history, the scene revision and what is held, and runtime events.
+`render_source(ctx)` adapts ssrobot's render handle; traces are byte-identical with and without a view attached. A `ContactOverlay` on the view draws the run's contacts from the forwarded state the handle captures, and agrees with ssrobot's privileged `contact` channels (touching, summed normal force), which `TraceChannels` shows by name. After the runtime reopens, an old view goes stale. `TraceChannels` shows the description's channels by joint and component name, each execution's command and state history, the scene revision and what is held, and runtime events.
 
 ### Preview a plan
 
@@ -260,6 +272,7 @@ python -m mj_viser.integrations.ssrobot.replay run-bundle/ replay/
 - Text in the scene shows the run's `TraceChannels` board at each record's time, with camera images beside it. `conversion.json` lists every channel as displayed, malformed, unavailable, or unsupported, and every image reading as shown or malformed.
 - A bundle with a missing or changed file is refused, and nothing is written. Moving the bundle does not change the recording.
 - `record_trace(records, world)` in the same module converts a trace without a bundle.
+- Contact geometry is not in the trace: ssrobot records each contact channel's touching and summed normal force, which the replay shows, but not contact points, normals, or per-contact forces.
 
 ## How MuJoCo geometry is converted
 
