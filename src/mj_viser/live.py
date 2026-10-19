@@ -19,7 +19,7 @@ from typing import Protocol
 
 import mujoco
 
-from mj_viser.channels import ChannelModel, ChannelPanels
+from mj_viser.channels import ChannelBoard, ChannelPanels
 from mj_viser.viewer import MujocoViewer
 
 
@@ -77,7 +77,7 @@ class LiveView:
         source: RenderSource,
         *,
         expected_world: str | None = None,
-        channels: ChannelModel | None = None,
+        channels: ChannelBoard | None = None,
         max_rate_hz: float | None = 30.0,
         host: str = "127.0.0.1",
         port: int = 8080,
@@ -90,9 +90,9 @@ class LiveView:
                 ``mj_viser.integrations.ssrobot.render_source(ctx)``.
             expected_world: If given, the scene identity the source must describe;
                 anything else is refused before rendering.
-            channels: A :class:`~mj_viser.channels.ChannelModel` that the simulation
-                feeds as a trace sink. Each browser then gets panels of its named
-                channels, executions, scene, and events, updated with each frame.
+            channels: A :class:`~mj_viser.ChannelBoard` the caller feeds. Each browser
+                then gets panels of its channels, status, and events, updated with each
+                frame.
             max_rate_hz: Most frames rendered per second. Faster calls to
                 :meth:`refresh` are coalesced. None renders every call.
             host, port, label, show_visibility: As for :class:`MujocoViewer`.

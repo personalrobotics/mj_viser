@@ -1,33 +1,24 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Siddhartha Srinivasa
 
-"""Image channels, live and in replay, without ssrobot or a renderer.
+"""Image channels on a board, in recordings, and in live panels, without ssrobot.
 
-A stand-in description declares three RGB cameras; the runtime provides two. A stand-in
-trace observes them independently with solid-colour images: left_cam red then green,
-right_cam blue then yellow, then a reading that is not an RGB image, then blue again,
-and then time passes. The checks:
-
-- replay: each well-formed image is in the recording at its recorded time, decoded to
-  its colour; a malformed reading hides right_cam's image while the label says
-  malformed, and the next valid reading shows it again; the report accounts for every
-  image reading as shown or malformed; both cameras end stale; aux_cam is unavailable;
-- live: both browsers get both images; several readings between two frames send one
-  image (presentation throttling), while the model still counts every reading; and
-  browsers connecting while every frame renders never make refresh raise.
-
-Writes images.viser and images_conversion.json to the output directory.
+The checks: a board's image channels are current, malformed (a reading that is not an
+RGB image leaves no older image to show), or unavailable, as fed; a StateRecorder
+refuses a non-image, records each image at its time, decoded to its colour, and hides
+an image and shows it again; both browsers of a LiveView get both images; several
+readings between two frames send one image while the board counts every reading; and
+browsers connecting while every frame renders never make refresh raise. Writes
+images.viser to the output directory.
 """
 
 from __future__ import annotations
 
 import io
-import json
 import os
 import threading
 import time
 from importlib.metadata import version
-from types import SimpleNamespace as NS
 from typing import Any
 
 import msgspec
@@ -37,43 +28,20 @@ from PIL import Image
 from websockets.sync.client import connect
 
 from e2e.channels import CAMERA, _frames
-from e2e.fixtures import STATES
+from e2e.fixtures import expect_raises
 from e2e.live_view import _Source
 from e2e.oracles import replay_recording
-from e2e.replay import _Mapping, _Record, _snapshot
-from mj_viser import ChannelModel, LiveView
-from mj_viser.replay import LABEL, record_trace
+from mj_viser import ChannelBoard, LiveView, StateRecorder
+from mj_viser.recording import IMAGES
 
-DESCRIPTION = NS(
-    groups=(),
-    channels=tuple(NS(name=n, quantity="rgb_image", source=n) for n in ("aux_cam", "left_cam", "right_cam")),
-)
 BROWSERS = 20
 COLOURS = {"red": (255, 0, 0), "green": (0, 255, 0), "blue": (0, 0, 255), "yellow": (255, 255, 0)}
 
 
-def _image(colour: str, shape: tuple[int, int]) -> NS:
+def _image(colour: str, shape: tuple[int, int]) -> np.ndarray:
     pixels = np.empty((*shape, 3), np.uint8)
     pixels[:] = COLOURS[colour]
-    return NS(dtype="uint8", shape=pixels.shape, data=pixels.tobytes())
-
-
-def _observed(t: int, **readings: NS) -> tuple[str, int, NS]:
-    return ("observed", t, NS(readings=tuple(NS(channel=c, stamp=NS(time_ns=t), value=v) for c, v in readings.items())))
-
-
-def _trace() -> list[_Record]:
-    rows = [
-        ("opened", 0, NS(runtime="stand-in", clock_mode="manual", channels=("left_cam", "right_cam"))),
-        ("snapshot", 0, _snapshot(STATES["A"])),
-        _observed(0, left_cam=_image("red", (24, 32)), right_cam=_image("blue", (16, 40))),
-        _observed(100_000_000, left_cam=_image("green", (24, 32))),
-        _observed(200_000_000, right_cam=_image("yellow", (16, 40))),
-        _observed(300_000_000, right_cam=NS(dtype="float32", shape=(16, 40), data=bytes(16 * 40 * 4))),
-        _observed(400_000_000, right_cam=_image("blue", (16, 40))),
-        ("stepped", 1_500_000_000, None),
-    ]
-    return [_Record(i, k, "sim", t, p) for i, (k, t, p) in enumerate(rows)]
+    return pixels
 
 
 def _colour(jpeg: bytes) -> str:
@@ -83,74 +51,75 @@ def _colour(jpeg: bytes) -> str:
 
 def check_images(model: mujoco.MjModel, out_dir: str) -> dict[str, Any]:
     out: dict[str, Any] = {}
-    world = NS(model=model, world="w", description="d", mapping=_Mapping())
-    replay = record_trace(_trace(), world, description=DESCRIPTION)
-    report = replay.report
-    expected = {
-        "left_cam": {"readings": [0, 100_000_000], "shown": [0, 100_000_000], "malformed": []},
-        "right_cam": {
-            "readings": [0, 200_000_000, 300_000_000, 400_000_000],
-            "shown": [0, 200_000_000, 400_000_000],
-            "malformed": [300_000_000],
-        },
-    }
-    if report["images"] != expected:
-        raise SystemExit(f"image accounting {report['images']}, expected {expected}")
-    coverage = {n: c["status"] for n, c in report["channels"].items()}
-    if coverage != {"aux_cam": "unavailable", "left_cam": "displayed", "right_cam": "displayed"}:
-        raise SystemExit(f"image channel coverage {coverage}")
 
-    # The recording itself: each image's colour at its time, and the label's final state.
-    messages = replay_recording(replay.recording)
+    # A board: two cameras, one more not provided, and a reading that is not an image.
+    channels = ChannelBoard()
+    for name in ("left_cam", "right_cam"):
+        channels.declare(name, kind="image")
+    channels.declare("aux_cam", kind="image", available=False)
+    channels.reading("left_cam", 0, _image("red", (24, 32)))
+    channels.reading("right_cam", 0, _image("blue", (16, 40)))
+    channels.reading("right_cam", 300_000_000, np.zeros((16, 40), np.float32))
+    channels.advance(300_000_000)
+    states = {c.name: (c.status, c.text) for c in channels.channels()}
+    expected = {
+        "aux_cam": ("unavailable", "not provided"),
+        "left_cam": ("current", "uint8 24×32×3 (t = 0.000 s)"),
+        "right_cam": ("malformed", "malformed: float32 16×40, not uint8 H×W×3"),
+    }
+    if states != expected:
+        raise SystemExit(f"image channel states {states}")
+    if channels.image("right_cam")[0] is not None:
+        raise SystemExit("a malformed reading left an older image to show")
+    out["states"] = {name: status for name, (status, _) in states.items()}
+
+    # A recording: each image at its time; a hidden image hides, and shows again.
+    data = mujoco.MjData(model)
+    with StateRecorder(model) as recorder:
+        out["refused"] = expect_raises(ValueError, lambda: recorder.image("bad", np.zeros((4, 4, 3), np.float32)))
+        recorder.advance(0)
+        recorder.show(data)
+        recorder.image("left_cam", _image("red", (24, 32)))
+        recorder.image("right_cam", _image("blue", (16, 40)))
+        recorder.advance(100_000_000)
+        recorder.image("left_cam", _image("green", (24, 32)))
+        recorder.advance(200_000_000)
+        recorder.image("right_cam", _image("yellow", (16, 40)))
+        recorder.advance(300_000_000)
+        recorder.image("right_cam", None)
+        recorder.advance(400_000_000)
+        recorder.image("right_cam", _image("blue", (16, 40)))
+        recording = recorder.finish()
+    messages = replay_recording(recording)
     seen = []
     for t, m in messages:
         name = m.get("name", "")
-        if name.startswith("/replay/images/"):
-            data = (m.get("props") or m.get("updates") or {}).get("_data")
-            if data is not None:
-                seen.append((round(t, 6), name.rsplit("/", 1)[1], _colour(data)))
-    if seen != [
+        if name.startswith(IMAGES + "/"):
+            image = (m.get("props") or m.get("updates") or {}).get("_data")
+            if image is not None:
+                seen.append((round(t, 6), name.rsplit("/", 1)[1], _colour(image)))
+    want = [
         (0.0, "left_cam", "red"),
         (0.0, "right_cam", "blue"),
         (0.1, "left_cam", "green"),
         (0.2, "right_cam", "yellow"),
         (0.4, "right_cam", "blue"),
-    ]:
+    ]
+    if seen != want:
         raise SystemExit(f"recorded images {seen}")
-    # A malformed reading hides the image it cannot replace; the next valid one shows.
     visibility = [
         (round(t, 6), m["visible"])
         for t, m in messages
-        if m["type"] == "SetSceneNodeVisibilityMessage" and m.get("name") == "/replay/images/right_cam" and t > 0
+        if m["type"] == "SetSceneNodeVisibilityMessage" and m.get("name") == f"{IMAGES}/right_cam" and t > 0
     ]
     if visibility != [(0.3, False), (0.4, True)]:
         raise SystemExit(f"right_cam visibility over the recording: {visibility}")
-    labels = [
-        (t, (m.get("props") or m.get("updates") or {}).get("text")) for t, m in messages if m.get("name") == LABEL
-    ]
-    labels = [(t, s.split("\n")) for t, s in labels if s is not None]
-
-    def label_at(t: float) -> list[str]:
-        return [s for when, s in labels if when <= t + 1e-9][-1]
-
-    for t, expect in (
-        (0.3, "right_cam = malformed: float32 16×40, not uint8 H×W×3"),
-        (1.5, "left_cam = uint8 24×32×3 (t = 0.100 s, stale)"),
-        (1.5, "right_cam = uint8 16×40×3 (t = 0.400 s, stale)"),
-    ):
-        if expect not in label_at(t):
-            raise SystemExit(f"{expect!r} not in the label at {t} s: {label_at(t)}")
     out["recorded"] = [f"{t} s {name} {colour}" for t, name, colour in seen]
     with open(os.path.join(out_dir, "images.viser"), "wb") as f:
-        f.write(replay.recording)
-    with open(os.path.join(out_dir, "images_conversion.json"), "w") as f:
-        json.dump(report, f, indent=2, sort_keys=True, ensure_ascii=False)
-        f.write("\n")
+        f.write(recording)
 
     # Live: both browsers get both images; readings between frames are coalesced.
-    channels = ChannelModel(DESCRIPTION)
-    for record in _trace()[:3]:
-        channels(record)
+    channels.reading("right_cam", 400_000_000, _image("blue", (16, 40)))
     view = LiveView(_Source(model), channels=channels, max_rate_hz=None, port=0)
     url = view.open().replace("http://", "ws://")
     clients = [connect(url, subprotocols=[f"viser-v{version('viser')}"], max_size=None) for _ in range(2)]
@@ -166,15 +135,7 @@ def check_images(model: mujoco.MjModel, out_dir: str) -> dict[str, Any]:
         before = [p.images_sent["left_cam"] for p in panels]
         for i in range(5):
             colour = "green" if i % 2 else "red"
-            channels(
-                _Record(
-                    10 + i,
-                    "observed",
-                    "sim",
-                    400_000_000 + i,
-                    _observed(400_000_000 + i, left_cam=_image(colour, (24, 32)))[2],
-                )
-            )
+            channels.reading("left_cam", 400_000_000 + i, _image(colour, (24, 32)))
         view.refresh(force=True)
         time.sleep(0.2)
         sent = [p.images_sent["left_cam"] - b for p, b in zip(panels, before, strict=True)]

@@ -61,7 +61,7 @@ viewer.close()                     # releases the port; open() again to reuse th
 
 ### Follow a running simulation (ssrobot)
 
-`LiveView` follows a simulation through a read-only render source (`mj_viser.RenderSource`): an object with its own `model` and `data`, a `world` identity, and `capture()`, which copies the simulation's state into `data` and returns a frame (`time_ns`, `revision`, `world`), or raises `mj_viser.SourceStale` once it can no longer describe the simulation. Any runtime that can expose a MuJoCo model and state can provide one. For ssrobot, `mj_viser.integrations.ssrobot.render_source(ctx)` adapts its render handle; for live viewing, that module is the only part of mj_viser that imports ssrobot.
+`LiveView` follows a simulation through a read-only render source (`mj_viser.RenderSource`): an object with its own `model` and `data`, a `world` identity, and `capture()`, which copies the simulation's state into `data` and returns a frame (`time_ns`, `revision`, `world`), or raises `mj_viser.SourceStale` once it can no longer describe the simulation. Any runtime that can expose a MuJoCo model and state can provide one. For ssrobot, `mj_viser.integrations.ssrobot.render_source(ctx)` adapts its render handle. `mj_viser.integrations.ssrobot` is the only part of mj_viser that imports ssrobot.
 
 ```python
 from mj_viser import LiveView
@@ -80,24 +80,23 @@ view.close()            # the simulation keeps running
 - The HUD shows the simulation's time and scene revision. `expected_world=` refuses a source for any other scene.
 - Attach and detach freely: make a new view with a new `render_source(ctx)`. After the simulation reopens, an old view goes `stale` and renders nothing more.
 
-To see what the run says by name, pass a `ChannelModel` to the context as a trace sink and to the view:
+To show named channels and status, give the view a `mj_viser.ChannelBoard` and feed it: `declare` channels (a vector of values with element names, an RGB image, or unsupported), give each a `reading(name, stamp_ns, value)`, set `status` lines and note `event`s, and `advance` its time. For ssrobot, `TraceChannels` is a trace sink that feeds a board from the run's own records:
 
 ```python
-from mj_viser import ChannelModel, LiveView
+from mj_viser.integrations.ssrobot import TraceChannels, render_source
 
-channels = ChannelModel(description)  # channel quantities and joint names
+channels = TraceChannels(description)  # channel quantities and joint names
 with RobotContext(description, runtime, sinks=[trace, channels]) as ctx:
-    view = LiveView(render_source(ctx), channels=channels)
+    view = LiveView(render_source(ctx), channels=channels.board)
 ```
 
 Each browser gets its own panels:
-- each declared channel's latest reading by joint or component name, with its time, marked `current`, `stale`, `awaiting`, `malformed`, `unavailable` (the runtime does not provide it), or `unsupported` (depth images);
-- each RGB camera channel's latest image, sent at most once per new reading;
-- each execution's command and state history;
-- the scene revision and what is held, and recent runtime events;
+- each channel's latest reading by element name, with its time, marked `current`, `stale`, `awaiting`, `malformed`, `unavailable` (not provided), or `unsupported`;
+- each image channel's latest image, sent at most once per new reading;
+- the status lines (for ssrobot: each execution's command and state history, the scene revision and what is held) and recent events;
 - a plot of the channel that browser picks.
 
-The panels only show; they hold no control of the run, and one browser's choices never reach another. A replay shows the same model in its scene label, with camera images beside it.
+The panels only show; they hold no control of the run, and one browser's choices never reach another. A replay shows the same board in its recorded text, with camera images beside it.
 
 ### Preview a plan (ssrobot)
 
@@ -124,17 +123,17 @@ preview.add("lift", arm.plan_to_end_effector_offset((0, 0, 1), 0.05, snapshot=sn
 A run saved as an ssrobot run bundle (`ssrobot.write_bundle`) converts into a native Viser recording. The bundle is verified and its world rebuilt by ssrobot without a runtime, before anything renders:
 
 ```bash
-python -m mj_viser.replay run-bundle/ replay/
+python -m mj_viser.integrations.ssrobot.replay run-bundle/ replay/
 # replay/recording.viser   the recording
 # replay/conversion.json   what is shown when, what is not, and every interval without a frame
 ```
 
 - Frames are the run's `SceneSnapshot`s, at the cadence the run took them with `ctx.snapshot()`. Nothing is interpolated.
-- A label in the scene shows what a `ChannelModel` of the trace shows at each record's time: named channel readings, each execution's states, the scene revision, and runtime events. Camera images appear beside the label at their recorded times. `conversion.json` lists every declared channel as displayed, malformed, unavailable, or unsupported, and every image reading as shown or malformed.
+- Text in the scene shows what a `TraceChannels` board of the trace shows at each record's time: named channel readings, each execution's states, the scene revision, and runtime events. Camera images appear beside the label at their recorded times. `conversion.json` lists every declared channel as displayed, malformed, unavailable, or unsupported, and every image reading as shown or malformed.
 - A bundle with a missing or changed file is refused, and nothing is written. Moving the bundle does not change the recording.
 - Play it with Viser's own player: `viser-build-client --out-dir client/`, serve the directory (`python -m http.server`), and open `http://localhost:8000/client/?playbackPath=http://localhost:8000/replay/recording.viser`.
 
-`mj_viser.replay.record_trace(records, world)` converts any trace and world of the same shape, without ssrobot.
+`mj_viser.integrations.ssrobot.replay.record_trace(records, world)` converts a trace without a bundle. To record states from anywhere else, use `mj_viser.StateRecorder`: `advance(time_ns)`, then `show(data)`, `text(lines)`, or `image(name, rgb)`, and `finish()` for the `.viser` bytes.
 
 ### Sensor plots
 

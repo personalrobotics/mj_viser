@@ -1,26 +1,24 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Siddhartha Srinivasa
 
-"""Replay a recorded run as a native Viser recording.
+"""Replay an ssrobot run as a native Viser recording.
 
 The run's trace is the record; a ``.viser`` file made from it is a derived view. Frames
 come from the trace's ``SceneSnapshot`` records, at whatever cadence the run took them,
-and nothing is interpolated between them. Commands, statuses, scene revisions,
-observations, attachment violations, and runtime events are shown in a scene label at
-their recorded times. Playback uses Viser's own player and timeline.
+and nothing is interpolated between them. A :class:`TraceChannels` board of the trace
+is shown in the recording's text and images at each record's time. Playback uses
+Viser's own player and timeline.
 
-``python -m mj_viser.replay BUNDLE OUT_DIR`` converts an ssrobot run bundle: it opens
-and verifies the bundle with ``ssrobot.open_bundle``, builds its world with
+``python -m mj_viser.integrations.ssrobot.replay BUNDLE OUT_DIR`` converts a run
+bundle: it opens and verifies it with ``ssrobot.open_bundle``, builds its world with
 ``ssrobot.mujoco.materialize_world`` (no runtime, context, or physics), and writes
-``recording.viser`` and ``conversion.json``. mj_viser does not import ssrobot otherwise;
-:func:`record_trace` accepts any records and world of the same shape.
+``recording.viser`` and ``conversion.json``.
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib
 import json
 import os
 import shutil
@@ -30,44 +28,15 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 import mujoco
-import numpy as np
 
-from mj_viser.channels import IMAGE, ChannelModel
-from mj_viser.viewer import MujocoViewer
+from mj_viser.integrations.ssrobot import materialize_world, open_bundle
+from mj_viser.integrations.ssrobot.channels import TraceChannels
+from mj_viser.recording import IMAGES, TEXT, StateRecorder
 
-LABEL = "/replay/status"
-"""Scene path of the label that shows the trace's events."""
-
-
-class SnapshotMapping(Protocol):
-    def apply(self, snapshot: Any, data: mujoco.MjData) -> None:
-        """Write a snapshot's state into ``data.qpos``; refuse one of another world."""
-        ...
-
-
-class World(Protocol):
-    """A recorded world built for viewing, like ssrobot's ``MaterializedWorld``."""
-
-    model: mujoco.MjModel
-    world: str
-    """The world identity every snapshot must name."""
-    description: str
-    """The robot description fingerprint every snapshot must name."""
-    mapping: SnapshotMapping
-
-
-class TraceRecord(Protocol):
-    """A trace record, like ssrobot's ``TraceRecord``."""
-
-    sequence: int
-    kind: Any
-    """The record kind; its string value, e.g. ``"snapshot"``, is used."""
-    clock: str
-    time_ns: int
-    payload: Any
+__all__ = ["Replay", "convert_bundle", "record_trace"]
 
 
 @dataclass(frozen=True)
@@ -80,15 +49,11 @@ class Replay:
     """What was shown when, what was not, and every interval without a frame."""
 
 
-def record_trace(
-    records: Sequence[TraceRecord], world: World, *, description: Any = None, label: str | None = None
-) -> Replay:
-    """Convert a trace of ``world`` into a Viser recording.
+def record_trace(records: Sequence[Any], world: Any, *, description: Any = None, label: str | None = None) -> Replay:
+    """Convert a trace of ``world`` (an ssrobot ``MaterializedWorld``) into a recording.
 
     Recording time is trace time since the first record. Before the first snapshot the
-    world is hidden: there is no recorded state to show. The label shows what a
-    :class:`~mj_viser.channels.ChannelModel` of the trace shows at each record's time;
-    ``description`` (the robot description) gives it channel quantities and joint names.
+    model is hidden: there is no recorded state to show.
 
     Raises:
         ValueError: If the trace is empty, out of order, on more than one clock, or has
@@ -97,64 +62,45 @@ def record_trace(
     """
     kinds = [_kind(r) for r in records]
     _check(records, kinds, world)
-    t0 = records[0].time_ns
-
-    viewer = MujocoViewer(world.model, port=0, label=label, show_visibility=False)
-    viewer.open()
-    try:
-        server = viewer.server
-        assert viewer._scene_mgr is not None
-        root = viewer._scene_mgr._body_frames[0]  # the world body: every rendered node is under it
-        root.visible = False
-        extent = float(world.model.stat.extent)
-        anchor = np.asarray(world.model.stat.center, float) + [0.0, 0.0, 0.75 * extent]
-        channels = ChannelModel(description)
-        text = server.scene.add_label(LABEL, "\n".join(channels.lines()), position=anchor, anchor="bottom-left")
-        recorder = server.get_scene_serializer()
-        data = mujoco.MjData(world.model)
-
-        shown: list[dict[str, Any]] = []
-        hidden: dict[str, int] = {}
-        images: dict[str, dict[str, list[int]]] = {}
-        image_nodes: dict[str, Any] = {}
-        hidden_changes: list[dict[str, Any]] = []
-        showing = channels.lines()[1:]  # what the label shows, apart from the time
-        frames: list[int] = []
-        frame_sequences: list[int] = []
-        cursor = t0
+    t0, end = records[0].time_ns, records[-1].time_ns
+    trace = TraceChannels(description)
+    board = trace.board
+    data = mujoco.MjData(world.model)
+    shown: list[dict[str, Any]] = []
+    hidden: dict[str, int] = {}
+    hidden_changes: list[dict[str, Any]] = []
+    images: dict[str, dict[str, list[int]]] = {}
+    frames: list[int] = []
+    frame_sequences: list[int] = []
+    with StateRecorder(world.model, label=label) as recorder:
+        recorder.advance(t0)
+        recorder.text(board.lines())
+        showing = board.lines()[1:]  # what the text shows, apart from the time
         for record, kind in zip(records, kinds, strict=True):
-            channels.accept(record)
+            trace(record)
             # ``stepped`` marks time only; an applied setpoint is shown only when modified.
-            # Either can still change what the label shows (a reading going stale), and
-            # only then is the label updated.
+            # Either can still change what the text shows (a reading going stale), and
+            # only then is it updated.
             if kind == "stepped" or (kind == "applied" and not record.payload.modifications):
                 hidden[kind] = hidden.get(kind, 0) + 1
-                if channels.lines()[1:] == showing:
+                if board.lines()[1:] == showing:
                     continue
                 hidden_changes.append({"sequence": record.sequence, "time_ns": record.time_ns, "kind": kind})
-            if record.time_ns > cursor:
-                recorder.insert_sleep((record.time_ns - cursor) / 1e9)
-                cursor = record.time_ns
+            recorder.advance(record.time_ns)
             if kind == "snapshot":
                 world.mapping.apply(record.payload, data)
-                viewer.update(data)
-                if not frames:
-                    root.visible = True
+                recorder.show(data)
                 frames.append(record.time_ns)
                 frame_sequences.append(record.sequence)
             elif not hidden_changes or hidden_changes[-1]["sequence"] != record.sequence:
                 shown.append({"sequence": record.sequence, "time_ns": record.time_ns, "kind": kind})
             if kind == "observed":
-                _show_images(server, channels, record, images, image_nodes, anchor, extent)
-            lines = channels.lines()
-            text.text = "\n".join(lines)
+                _show_images(recorder, trace, record, images)
+            lines = board.lines()
+            recorder.text(lines)
             showing = lines[1:]
-        end = records[-1].time_ns
-        if end > cursor:
-            recorder.insert_sleep((end - cursor) / 1e9)
-        recording = recorder.serialize()
-    finally:
-        viewer.close()
+        recorder.advance(end)
+        recording = recorder.finish()
 
     report = {
         "world": world.world,
@@ -176,68 +122,44 @@ def record_trace(
         },
         "intervals_without_frame": _gaps(t0, end, frames),
         "shown": shown,
-        "channels": channels.coverage(),
+        "channels": board.coverage(),
         "not_shown": dict(sorted(hidden.items())),
         "not_shown_but_changed_the_label": hidden_changes,
         "images": {name: images[name] for name in sorted(images)},
         "recording": {
             "duration_s": (end - t0) / 1e9,
             "sha256": hashlib.sha256(recording).hexdigest(),
-            "label": LABEL,
+            "label": TEXT,
+            "images": IMAGES,
         },
         "mj_viser": version("mj-viser"),
     }
     return Replay(recording=recording, report=report)
 
 
-# Images stand upright beside the label: the image plane turned 90° about x.
-_UPRIGHT = (np.cos(np.pi / 4), np.sin(np.pi / 4), 0.0, 0.0)
-
-
 def _show_images(
-    server: Any,
-    channels: ChannelModel,
-    record: TraceRecord,
-    images: dict[str, dict[str, list[int]]],
-    nodes: dict[str, Any],
-    anchor: np.ndarray,
-    extent: float,
+    recorder: StateRecorder, trace: TraceChannels, record: Any, images: dict[str, dict[str, list[int]]]
 ) -> None:
-    """Show each image reading of an observation as a scene image, which a recording
-    keeps; account for every image reading, shown or malformed."""
-    image_channels = {c.name: c for c in channels.channels() if c.quantity == IMAGE}
+    """Show each image reading of an observation; account for every one, shown or
+    malformed. A malformed reading hides its channel's image rather than leave an older
+    one showing as if it were this reading."""
+    image_channels = {c.name for c in trace.board.channels() if c.kind == "image"}
     for reading in record.payload.readings:
-        c = image_channels.get(reading.channel)
-        if c is None:
+        if reading.channel not in image_channels:
             continue
         stamp = reading.stamp.time_ns
-        log = images.setdefault(c.name, {"readings": [], "shown": [], "malformed": []})
+        log = images.setdefault(reading.channel, {"readings": [], "shown": [], "malformed": []})
         log["readings"].append(stamp)
-        image, _ = channels.image(c.name)
-        if image is None:
-            # Never show an older image as if it were this reading.
-            log["malformed"].append(stamp)
-            if c.name in nodes:
-                nodes[c.name].visible = False
-            continue
-        log["shown"].append(stamp)
-        if c.name in nodes:
-            nodes[c.name].image = image
-            nodes[c.name].visible = True
-            continue
-        width = 0.5 * extent
-        height = width * image.shape[0] / image.shape[1]
-        position = anchor + [width * (0.6 + 1.1 * len(nodes)), 0.0, -0.5 * height]
-        nodes[c.name] = server.scene.add_image(
-            f"/replay/images/{c.name}", image, width, height, format="jpeg", wxyz=_UPRIGHT, position=position
-        )
+        image, _ = trace.board.image(reading.channel)
+        log["shown" if image is not None else "malformed"].append(stamp)
+        recorder.image(reading.channel, image)
 
 
-def _kind(record: TraceRecord) -> str:
+def _kind(record: Any) -> str:
     return str(getattr(record.kind, "value", record.kind))
 
 
-def _check(records: Sequence[TraceRecord], kinds: list[str], world: World) -> None:
+def _check(records: Sequence[Any], kinds: list[str], world: Any) -> None:
     if not records:
         raise ValueError("the trace is empty")
     clock = records[0].clock
@@ -282,10 +204,8 @@ def convert_bundle(bundle: str | os.PathLike[str], out_dir: str | os.PathLike[st
     source = Path(bundle).resolve()
     if target.resolve().is_relative_to(source):
         raise ValueError(f"{target} is inside the bundle {bundle}; write the replay elsewhere")
-    ssrobot = importlib.import_module("ssrobot")
-    ssrobot_mujoco = importlib.import_module("ssrobot.mujoco")
-    opened = ssrobot.open_bundle(bundle)
-    world = ssrobot_mujoco.materialize_world(opened)
+    opened = open_bundle(bundle)
+    world = materialize_world(opened)
     description = opened.package.description
     replay = record_trace(opened.records, world, description=description, label=description.name)
     report = replay.report
@@ -306,7 +226,7 @@ def convert_bundle(bundle: str | os.PathLike[str], out_dir: str | os.PathLike[st
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="python -m mj_viser.replay",
+        prog="python -m mj_viser.integrations.ssrobot.replay",
         description="Convert an ssrobot run bundle into a Viser recording (recording.viser, conversion.json).",
     )
     parser.add_argument("bundle", help="run bundle directory")
@@ -314,9 +234,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         report = convert_bundle(args.bundle, args.out_dir)
-    except ModuleNotFoundError as e:
-        print(f"error: converting a bundle needs ssrobot with its MuJoCo extra ({e})", file=sys.stderr)
-        return 2
     except (FileExistsError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
