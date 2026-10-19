@@ -17,7 +17,7 @@ import mujoco
 import numpy as np
 
 from mj_viser.channels import rgb_image
-from mj_viser.contacts import ContactSet, contact_set, contact_vectors
+from mj_viser.contacts import ContactSet, check_scale, contact_set, contact_vectors
 from mj_viser.viewer import MujocoViewer
 
 TEXT = "/recording/text"
@@ -57,7 +57,13 @@ class StateRecorder:
             contacts: Draw each shown state's contacts (points, normals, and force
                 arrows of ``contact_scale_m_per_n`` meters per newton), and log them in
                 :attr:`contact_log`.
+
+        Raises:
+            ValueError: Before anything opens, if ``contact_scale_m_per_n`` is not finite
+                and positive.
         """
+        # Checked before anything opens, so bad input leaves nothing running.
+        self._contact_scale = check_scale(contact_scale_m_per_n)
         self._model = model
         self._viewer = MujocoViewer(model, port=0, label=label, show_visibility=False)
         self._viewer.open()
@@ -76,7 +82,6 @@ class StateRecorder:
         self.states_ns: list[int] = []
         """The time of each state shown, from the first :meth:`advance`."""
         self._contacts = contacts
-        self._contact_scale = contact_scale_m_per_n
         self._contact_nodes: dict[str, Any] = {}
         self.contact_log: list[dict[str, Any]] = []
         """Per state shown, with ``contacts=True``: every contact and what was drawn."""

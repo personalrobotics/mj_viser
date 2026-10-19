@@ -70,12 +70,40 @@ class ContactSet:
         return self.total > len(self.contacts)
 
 
+def check_limit(limit: int) -> int:
+    """``limit`` if it is a positive integer, the most contacts to draw.
+
+    Raises:
+        ValueError: Otherwise.
+    """
+    if isinstance(limit, bool) or not isinstance(limit, (int, np.integer)) or limit <= 0:
+        raise ValueError(f"the contact limit must be a positive integer, got {limit!r}")
+    return int(limit)
+
+
+def check_scale(scale_m_per_n: float) -> float:
+    """``scale_m_per_n`` if it is finite and positive: meters of arrow per newton.
+
+    Raises:
+        ValueError: Otherwise.
+    """
+    if isinstance(scale_m_per_n, bool) or not isinstance(scale_m_per_n, (int, float, np.number)):
+        raise ValueError(f"the force arrow scale must be a number, got {scale_m_per_n!r}")
+    if not (math.isfinite(scale_m_per_n) and scale_m_per_n > 0):
+        raise ValueError(f"the force arrow scale must be finite and positive, got {scale_m_per_n!r}")
+    return float(scale_m_per_n)
+
+
 def contact_set(model: mujoco.MjModel, data: mujoco.MjData, *, limit: int = LIMIT) -> ContactSet:
     """The contacts ``data`` holds, as its simulation computed them.
 
     ``data`` must be of ``model``; its contact list and constraint forces are read as
     they are (a caller that steps or forwards the simulation supplies them).
+
+    Raises:
+        ValueError: If ``limit`` is not a positive integer.
     """
+    limit = check_limit(limit)
     total = int(data.ncon)
     out = []
     wrench = np.zeros(6)
@@ -150,12 +178,8 @@ class ContactOverlay(PanelBase):
     """
 
     def __init__(self, *, limit: int = LIMIT, scale_m_per_n: float = 0.01) -> None:
-        if limit <= 0:
-            raise ValueError(f"limit must be positive, got {limit}")
-        if not (math.isfinite(scale_m_per_n) and scale_m_per_n > 0):
-            raise ValueError(f"scale_m_per_n must be finite and positive, got {scale_m_per_n}")
-        self._limit = limit
-        self._scale = scale_m_per_n
+        self._limit = check_limit(limit)
+        self._scale = check_scale(scale_m_per_n)
         self._lock = threading.Lock()
         self._clients: dict[int, _ClientContacts] = {}
         self._contacts: ContactSet | None = None

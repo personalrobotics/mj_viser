@@ -29,6 +29,7 @@ import numpy as np
 from websockets.sync.client import connect
 
 from e2e.channels import CAMERA, _frames
+from e2e.fixtures import expect_raises
 from e2e.oracles import replay_arrays
 from mj_viser import ContactOverlay, MujocoViewer, StateRecorder, contact_set
 from mj_viser.recording import CONTACTS
@@ -95,6 +96,33 @@ def check_contacts(out_dir: str) -> dict[str, Any]:
     if not limited.truncated or len(limited.contacts) != 2 or limited.total != 4:
         raise SystemExit(f"a limit of 2 gave {limited}")
     out["truncated"] = f"{len(limited.contacts)} of {limited.total}"
+
+    # Bad limits and scales are refused where they come in; the recorder refuses before
+    # it opens anything.
+    def opened(*args: Any, **kwargs: Any) -> None:
+        raise SystemExit("StateRecorder opened a viewer for a scale it refuses")
+
+    refused = {}
+    for limit in (0, -1, 1.5, True):
+        refused[f"contact_set limit {limit!r}"] = expect_raises(
+            ValueError, lambda limit=limit: contact_set(model, states["rest"], limit=limit)
+        )
+        refused[f"ContactOverlay limit {limit!r}"] = expect_raises(
+            ValueError, lambda limit=limit: ContactOverlay(limit=limit)
+        )
+    original = MujocoViewer.open
+    MujocoViewer.open = opened  # type: ignore[method-assign]
+    try:
+        for scale in (-0.01, 0.0, float("nan"), float("inf")):
+            refused[f"StateRecorder scale {scale!r}"] = expect_raises(
+                ValueError, lambda scale=scale: StateRecorder(model, contacts=True, contact_scale_m_per_n=scale)
+            )
+            refused[f"ContactOverlay scale {scale!r}"] = expect_raises(
+                ValueError, lambda scale=scale: ContactOverlay(scale_m_per_n=scale)
+            )
+    finally:
+        MujocoViewer.open = original  # type: ignore[method-assign]
+    out["refused"] = refused
 
     # Recorded: no contact nodes in the air; at rest a point, normal, and force each.
     with StateRecorder(model, contacts=True, contact_scale_m_per_n=SCALE) as recorder:
