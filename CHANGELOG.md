@@ -16,12 +16,18 @@
     sink; pass its `.board` to `LiveView(channels=)`.
   - `python -m mj_viser.replay` becomes `python -m mj_viser.integrations.ssrobot.replay`,
     and `record_trace` and `convert_bundle` move to that module.
+  - `mj_viser.PlanPreview` becomes `mj_viser.integrations.ssrobot.PlanPreview`, and
+    `preview.add(name, result, snapshot)` becomes `preview.add_result(...)`;
+    `record_preview` moves there too.
 - `ChannelBoard` is the general channel and status model that `LiveView` panels and
   recordings show; callers feed it named readings, status lines, and events. The panels'
   "Executions" folder is now "Status".
 
 ### Added
 
+- `MotionPreview` previews named `JointMotion`s of any MuJoCo model as per-browser ghosts,
+  with waypoints, timed motions at exact times, and an optional `Highlight`;
+  `record_motion` records one (#51). ssrobot's `PlanPreview` is built on it.
 - `StateRecorder` records caller-supplied states, text, and RGB images of any MuJoCo model
   as a native Viser recording, at the times the caller gives (#51).
 - `PlanPreview` shows ssrobot planning results as a ghost of the moving robot in the

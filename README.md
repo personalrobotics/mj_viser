@@ -19,7 +19,9 @@ mj_viser renders MuJoCo state; it does not step simulations or command robots. Y
 - **Body-frame scene** — one Viser frame per MuJoCo body, with geoms and sites beneath it at stable, unique paths
 - **Click-to-select** — click any geom to show its body name, to that browser only; the label follows the object
 - **Sites** — MuJoCo sites drawn as their shapes, beneath their bodies
-- **Live view** — `LiveView` follows a running simulation (for example ssrobot) without being able to affect it
+- **Live view** — `LiveView` follows a running simulation through a read-only source, without being able to affect it
+- **Channels, recordings, and previews** — `ChannelBoard` panels, `StateRecorder` recordings, and `MotionPreview` ghosts, for any MuJoCo model
+- **ssrobot integration** — optional `mj_viser.integrations.ssrobot`: live view, plan preview, and run-bundle replay for ssrobot runs
 - **Visibility groups** — show or hide MuJoCo geom and site groups, from the panel or `set_visible_groups()`
 - **Loopback by default** — binds `127.0.0.1`; serving other machines is an explicit `host=` choice
 - **Multi-client** — multiple browser tabs viewing the same simulation
@@ -59,81 +61,69 @@ viewer.close()                     # releases the port; open() again to reuse th
 
 `with MujocoViewer(model) as viewer:` opens on entry and closes on exit. `update()` recomputes kinematics on its copy, so setting `qpos` alone (for example when replaying a trace) is enough. Panels read that copy as `viewer.data`.
 
-### Follow a running simulation (ssrobot)
+### Follow a running simulation
 
-`LiveView` follows a simulation through a read-only render source (`mj_viser.RenderSource`): an object with its own `model` and `data`, a `world` identity, and `capture()`, which copies the simulation's state into `data` and returns a frame (`time_ns`, `revision`, `world`), or raises `mj_viser.SourceStale` once it can no longer describe the simulation. Any runtime that can expose a MuJoCo model and state can provide one. For ssrobot, `mj_viser.integrations.ssrobot.render_source(ctx)` adapts its render handle. `mj_viser.integrations.ssrobot` is the only part of mj_viser that imports ssrobot.
+`LiveView` follows a simulation through a read-only render source (`mj_viser.RenderSource`): an object with its own `model` and `data`, a `world` identity, and `capture()`, which copies the simulation's state into `data` and returns a frame (`time_ns`, `revision`, `world`), or raises `mj_viser.SourceStale` once it can no longer describe the simulation. Any runtime that can expose a MuJoCo model and state can provide one.
 
 ```python
 from mj_viser import LiveView
-from mj_viser.integrations.ssrobot import render_source
 
-view = LiveView(render_source(ctx), max_rate_hz=30)
-print(view.open())
+view = LiveView(source, max_rate_hz=30)   # source: your RenderSource
+print(view.open())                        # raises SourceStale if the first frame cannot be shown
 while running:
-    ctx.step()          # ssrobot owns time and stepping
-    view.refresh()      # captures and renders, at most 30 times a second
-view.close()            # the simulation keeps running
+    step_my_simulation()                  # your runtime owns time and stepping
+    view.refresh()                        # captures and renders, at most 30 times a second
+view.close()                              # the simulation keeps running
 ```
 
-- Nothing the viewer does reaches the simulation: the handle holds copies, and traces are byte-identical with and without a view attached.
+- Nothing the viewer does reaches the simulation: the source holds copies.
 - `refresh()` never raises because the view was closed or a browser went away, so it cannot stop your loop.
 - The HUD shows the simulation's time and scene revision. `expected_world=` refuses a source for any other scene.
-- Attach and detach freely: make a new view with a new `render_source(ctx)`. After the simulation reopens, an old view goes `stale` and renders nothing more.
+- Attach and detach freely with new sources. After a source goes stale, its view renders nothing more.
 
-To show named channels and status, give the view a `mj_viser.ChannelBoard` and feed it: `declare` channels (a vector of values with element names, an RGB image, or unsupported), give each a `reading(name, stamp_ns, value)`, set `status` lines and note `event`s, and `advance` its time. For ssrobot, `TraceChannels` is a trace sink that feeds a board from the run's own records:
+### Named channels and status
+
+Give a `LiveView` a `mj_viser.ChannelBoard` and feed it: `declare` channels (a vector of values with element names, an RGB image, or unsupported), give each a `reading(name, stamp_ns, value)`, set `status` lines, note `event`s, and `advance` its time.
 
 ```python
-from mj_viser.integrations.ssrobot import TraceChannels, render_source
+from mj_viser import ChannelBoard
 
-channels = TraceChannels(description)  # channel quantities and joint names
-with RobotContext(description, runtime, sinks=[trace, channels]) as ctx:
-    view = LiveView(render_source(ctx), channels=channels.board)
+board = ChannelBoard()
+board.declare("arm_q", quantity="joint_position", labels=("shoulder", "elbow"))
+board.declare("wrist_rgb", kind="image")
+view = LiveView(source, channels=board)
+board.reading("arm_q", stamp_ns, (0.3, 0.1))
+board.set_status("task", "reaching")
 ```
 
 Each browser gets its own panels:
 - each channel's latest reading by element name, with its time, marked `current`, `stale`, `awaiting`, `malformed`, `unavailable` (not provided), or `unsupported`;
 - each image channel's latest image, sent at most once per new reading;
-- the status lines (for ssrobot: each execution's command and state history, the scene revision and what is held) and recent events;
+- the status lines and recent events;
 - a plot of the channel that browser picks.
 
-The panels only show; they hold no control of the run, and one browser's choices never reach another. A replay shows the same board in its recorded text, with camera images beside it.
+The panels only show; they hold no control of the run, and one browser's choices never reach another.
 
-### Preview a plan (ssrobot)
+### Record states
 
-`PlanPreview` shows planning results as a translucent ghost of the moving robot, in the scene they were planned in, before you choose to execute them:
+`mj_viser.StateRecorder` writes any model's states, text, and RGB images into a native Viser recording at the times you give, for Viser's own player:
 
 ```python
-from ssrobot.mujoco import materialize_world_from
-from mj_viser import PlanPreview
+from mj_viser import StateRecorder
 
-world = materialize_world_from(package, world=runtime.world(), scene=scene)
-preview = PlanPreview(world, description, live=view)   # view: your LiveView
-view.viewer.add_panel(preview)
-snapshot = ctx.snapshot()
-preview.add("lift", arm.plan_to_end_effector_offset((0, 0, 1), 0.05, snapshot=snapshot, planner=planner), snapshot)
+with StateRecorder(model) as recorder:
+    for time_ns, data, lines in my_states:
+        recorder.advance(time_ns)
+        recorder.show(data)
+        recorder.text(lines)
+    open("run.viser", "wb").write(recorder.finish())
 ```
 
-- Each browser picks a result and scrubs its path (the planner's own waypoints) or its trajectory (evaluated exactly from the planner's timing law). The ghost is in that browser's scene only.
-- A result is refused if it was planned in another snapshot, world, or (with `live=`) scene revision, and a shown preview goes stale when the scene changes.
-- `add(..., validation=)` takes an invalid `MotionValidation` and shows its first invalid state, with its location and contacts, as ssrobot reported it.
-- Previewing never submits, cancels, or changes anything. `mj_viser.preview.record_preview` writes a preview as a `.viser` recording.
+Nothing is interpolated: each state shows from its time until the next. Play a recording with Viser's player: `viser-build-client --out-dir client/`, serve the directory (`python -m http.server`), and open `http://localhost:8000/client/?playbackPath=http://localhost:8000/run.viser`.
 
-### Replay a recorded run (ssrobot)
+### Preview joint motions
 
-A run saved as an ssrobot run bundle (`ssrobot.write_bundle`) converts into a native Viser recording. The bundle is verified and its world rebuilt by ssrobot without a runtime, before anything renders:
-
-```bash
-python -m mj_viser.integrations.ssrobot.replay run-bundle/ replay/
-# replay/recording.viser   the recording
-# replay/conversion.json   what is shown when, what is not, and every interval without a frame
-```
-
-- Frames are the run's `SceneSnapshot`s, at the cadence the run took them with `ctx.snapshot()`. Nothing is interpolated.
-- Text in the scene shows what a `TraceChannels` board of the trace shows at each record's time: named channel readings, each execution's states, the scene revision, and runtime events. Camera images appear beside the label at their recorded times. `conversion.json` lists every declared channel as displayed, malformed, unavailable, or unsupported, and every image reading as shown or malformed.
-- A bundle with a missing or changed file is refused, and nothing is written. Moving the bundle does not change the recording.
-- Play it with Viser's own player: `viser-build-client --out-dir client/`, serve the directory (`python -m http.server`), and open `http://localhost:8000/client/?playbackPath=http://localhost:8000/replay/recording.viser`.
-
-`mj_viser.integrations.ssrobot.replay.record_trace(records, world)` converts a trace without a bundle. To record states from anywhere else, use `mj_viser.StateRecorder`: `advance(time_ns)`, then `show(data)`, `text(lines)`, or `image(name, rgb)`, and `finish()` for the `.viser` bytes.
+`mj_viser.MotionPreview` shows named `JointMotion`s as a translucent ghost of the bodies they move. Each browser picks one and scrubs its waypoints, or its timed motion at exact times, in its own scene. A motion may carry a `Highlight`, such as an invalid state, shown with its caption. Nothing is executed. `mj_viser.preview.record_motion` writes a motion as a recording.
 
 ### Sensor plots
 
@@ -216,6 +206,60 @@ viewer = MujocoViewer(model, show_visibility=False)  # no panel; groups still ap
 ```
 
 Group ids are MuJoCo's 0–5; anything else (a float, a string, a bool, or an id out of range) raises `TypeError` or `ValueError` and leaves the current setting unchanged.
+
+## ssrobot integration
+
+`mj_viser.integrations.ssrobot` connects mj_viser to [ssrobot](https://github.com/personalrobotics/ssrobot) runs. It is the only part of mj_viser that imports ssrobot, which you install yourself (with its MuJoCo extra); importing it without ssrobot says what is needed.
+
+### Follow a run
+
+```python
+from mj_viser import LiveView
+from mj_viser.integrations.ssrobot import TraceChannels, render_source
+
+channels = TraceChannels(description)   # an ssrobot trace sink that feeds a ChannelBoard
+with RobotContext(description, runtime, sinks=[trace, channels]) as ctx:
+    view = LiveView(render_source(ctx), channels=channels.board)
+    view.open()
+    while running:
+        ctx.step()
+        view.refresh()
+```
+
+`render_source(ctx)` adapts ssrobot's render handle; traces are byte-identical with and without a view attached. After the runtime reopens, an old view goes stale. `TraceChannels` shows the description's channels by joint and component name, each execution's command and state history, the scene revision and what is held, and runtime events.
+
+### Preview a plan
+
+```python
+from ssrobot.mujoco import materialize_world_from
+from mj_viser.integrations.ssrobot import PlanPreview
+
+world = materialize_world_from(package, world=runtime.world(), scene=scene)
+preview = PlanPreview(world, description, live=view)
+view.viewer.add_panel(preview)
+snapshot = ctx.snapshot()
+preview.add_result("lift", arm.plan_to_end_effector_offset((0, 0, 1), 0.05, snapshot=snapshot, planner=planner), snapshot)
+```
+
+- Each browser picks a result and scrubs its path (the planner's own waypoints) or its trajectory (evaluated exactly from the planner's timing law). Held objects ride their end effectors.
+- A result is refused if it was planned in another snapshot, world, or (with `live=`) scene revision, and a shown preview goes stale when the scene changes.
+- `add_result(..., validation=)` takes an invalid `MotionValidation` of the plan's own motion and shows its first invalid state, with its location and contacts.
+- `record_preview` writes a preview as a recording.
+
+### Replay a run bundle
+
+A run saved as an ssrobot run bundle (`ssrobot.write_bundle`) converts into a native Viser recording. The bundle is verified and its world rebuilt by ssrobot without a runtime, before anything renders:
+
+```bash
+python -m mj_viser.integrations.ssrobot.replay run-bundle/ replay/
+# replay/recording.viser   the recording
+# replay/conversion.json   what is shown when, what is not, and every interval without a frame
+```
+
+- Frames are the run's `SceneSnapshot`s, at the cadence the run took them with `ctx.snapshot()`. Nothing is interpolated.
+- Text in the scene shows the run's `TraceChannels` board at each record's time, with camera images beside it. `conversion.json` lists every channel as displayed, malformed, unavailable, or unsupported, and every image reading as shown or malformed.
+- A bundle with a missing or changed file is refused, and nothing is written. Moving the bundle does not change the recording.
+- `record_trace(records, world)` in the same module converts a trace without a bundle.
 
 ## How MuJoCo geometry is converted
 

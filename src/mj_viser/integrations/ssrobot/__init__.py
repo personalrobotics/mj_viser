@@ -10,6 +10,8 @@ Nothing else in mj_viser does.
   :class:`mj_viser.RenderSource` for :class:`mj_viser.LiveView`.
 - :class:`TraceChannels` is a trace sink that keeps a :class:`mj_viser.ChannelBoard`
   of the run's named channels, executions, scene, and events.
+- :class:`PlanPreview` previews planning results as ghosts, and :func:`record_preview`
+  records one.
 - :mod:`mj_viser.integrations.ssrobot.replay` converts traces and run bundles into
   Viser recordings (``python -m mj_viser.integrations.ssrobot.replay BUNDLE OUT_DIR``).
 """
@@ -42,8 +44,9 @@ except ModuleNotFoundError as e:
     ) from e
 
 from mj_viser.integrations.ssrobot.channels import TraceChannels  # noqa: E402
+from mj_viser.integrations.ssrobot.preview import PlanPreview, record_preview  # noqa: E402
 
-__all__ = ["TraceChannels", "materialize_world", "open_bundle", "render_source"]
+__all__ = ["PlanPreview", "TraceChannels", "materialize_world", "open_bundle", "record_preview", "render_source"]
 
 # ssrobot's codes for a render handle that can no longer describe its runtime: the
 # runtime reopened (make a new handle) or is not open.
