@@ -17,6 +17,7 @@ and validations of the same shape work.
 from __future__ import annotations
 
 import html
+import math
 import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -56,17 +57,28 @@ class PlanPreview(PanelBase):
     stale when the scene changes.
     """
 
-    def __init__(self, world: Any, *, live: LiveView | None = None) -> None:
+    def __init__(self, world: Any, description: Any, *, live: LiveView | None = None) -> None:
         """
         Args:
             world: The world the results were planned in, with ``model`` (an
                 ``MjModel``), ``world`` and ``description`` (identities), and
                 ``mapping`` (``apply(snapshot, data)``), like ssrobot's
                 ``MaterializedWorld``.
-            live: The live view whose scene revision results must match, if any.
+            description: The robot description, whose end effectors name the frames
+                held objects move with.
+            live: The live view it is drawn over, whose world it must be and whose
+                scene revision results must match, if any.
+
+        Raises:
+            ValueError: If the description or the live view is of another robot or world.
         """
+        if description.fingerprint() != world.description:
+            raise ValueError("the description is not the one the world was built for")
+        if live is not None and live.world != world.world:
+            raise ValueError(f"the live view shows world {live.world!r}, not {world.world!r}")
         self._world = world
         self._live = live
+        self._end_effectors: dict[str, str] = {str(e.name): str(e.frame) for e in description.end_effectors}
         self._model: mujoco.MjModel = world.model
         self._previews: dict[str, _Preview] = {}
         self._clients: dict[int, _ClientPreview] = {}
@@ -109,8 +121,18 @@ class PlanPreview(PanelBase):
         if validation is not None:
             if validation.valid or validation.witness is None:
                 raise ValueError(f"{name}: only an invalid validation has a state to show")
-            if validation.validator.snapshot != request.snapshot:
+            validator = validation.validator
+            if validator.snapshot != request.snapshot:
                 raise ValueError(f"{name}: the validation is bound to another snapshot")
+            if validator.group != request.group or tuple(validator.joints) != tuple(request.joints):
+                raise ValueError(f"{name}: the validation is of another group or joints")
+            if validation.motion not in {v.motion for v in result.validation}:
+                raise ValueError(f"{name}: the validation is of another motion than this plan's")
+        for attachment in snapshot.attachments:
+            if attachment.held and self._held_frame(attachment) is None:
+                raise ValueError(
+                    f"{name}: no frame for {attachment.object!r}'s end effector {attachment.end_effector!r}"
+                )
         stale = self._stale_reason(request)
         if stale is not None:
             raise ValueError(f"{name}: {stale}")
@@ -142,6 +164,11 @@ class PlanPreview(PanelBase):
     # ------------------------------------------------------------------
 
     def setup(self, gui: viser.GuiApi, viewer: MujocoViewer) -> None:
+        # The ghost is drawn over this viewer: it must show the world the results are of.
+        if self._live is not None and viewer is not self._live.viewer:
+            raise ValueError("add the preview to its live view's viewer")
+        if self._live is None and viewer.model is not self._model:
+            raise ValueError("the viewer does not show this world's model")
         self._viewer = viewer
         server = viewer.server
         server.on_client_connect(self._connect)
@@ -187,41 +214,59 @@ class PlanPreview(PanelBase):
     def ghost_state(self, preview: _Preview, configuration: tuple[float, ...]) -> mujoco.MjData:
         """The planning snapshot with the result's joints at ``configuration``, and held
         objects carried along, with kinematics computed."""
-        data = mujoco.MjData(self._model)
+        model, data = self._model, mujoco.MjData(self._model)
         self._world.mapping.apply(preview.snapshot, data)
         for joint, value in zip(preview.result.request.joints, configuration, strict=True):
             data.qpos[self._qpos[joint]] = value
-        mujoco.mj_kinematics(self._model, data)
-        _carry_held_objects(self._model, data, preview.snapshot, dict(self._world.mapping.objects))
+        mujoco.mj_kinematics(model, data)
+        objects = dict(self._world.mapping.objects)
+        held = [a for a in preview.snapshot.attachments if a.held and a.object in objects]
+        for attachment in held:  # as the planning scene does: the object rides its end effector
+            frame = self._held_frame(attachment)
+            assert frame is not None  # checked when the preview was added
+            pose = _frame_pose(model, data, frame) @ _transform(attachment.transform)
+            quat = np.zeros(4)
+            mujoco.mju_mat2Quat(quat, pose[:3, :3].flatten())
+            at = objects[attachment.object]
+            data.qpos[at : at + 3] = pose[:3, 3]
+            data.qpos[at + 3 : at + 7] = quat
+        if held:
+            mujoco.mj_kinematics(model, data)
         return data
 
+    def ghost_bodies(self, preview: _Preview) -> list[int]:
+        """The bodies a preview moves: the result's joints' subtrees and held objects."""
+        model = self._model
+        joints = [mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, j) for j in preview.result.request.joints]
+        objects = dict(self._world.mapping.objects)
+        held = [
+            mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, a.object)
+            for a in preview.snapshot.attachments
+            if a.held and a.object in objects
+        ]
+        return _moving_bodies(model, [j for j in joints if j >= 0], [b for b in held if b >= 0])
 
-def _carry_held_objects(model: mujoco.MjModel, data: mujoco.MjData, snapshot: Any, objects: dict[str, int]) -> None:
-    """Move each held object with its end effector, as the planning scene does."""
-    moved = False
-    for attachment in snapshot.attachments:
-        if not attachment.held or attachment.object not in objects:
-            continue
-        frame = _frame_pose(model, data, attachment.end_effector)
+    def _held_frame(self, attachment: Any) -> str | None:
+        """The MJCF body or site a held object rides: its end effector's frame."""
+        frame = self._end_effectors.get(attachment.end_effector)
         if frame is None:
-            continue
-        offset = np.eye(4)
-        rotation = np.zeros(9)
-        mujoco.mju_quat2Mat(rotation, np.asarray(attachment.transform.quat_wxyz, float))
-        offset[:3, :3] = rotation.reshape(3, 3)
-        offset[:3, 3] = attachment.transform.position
-        pose = frame @ offset
-        quat = np.zeros(4)
-        mujoco.mju_mat2Quat(quat, pose[:3, :3].flatten())
-        at = objects[attachment.object]
-        data.qpos[at : at + 3] = pose[:3, 3]
-        data.qpos[at + 3 : at + 7] = quat
-        moved = True
-    if moved:
-        mujoco.mj_kinematics(model, data)
+            return None
+        for kind in (mujoco.mjtObj.mjOBJ_BODY, mujoco.mjtObj.mjOBJ_SITE):
+            if mujoco.mj_name2id(self._model, kind, frame) >= 0:
+                return frame
+        return None
 
 
-def _frame_pose(model: mujoco.MjModel, data: mujoco.MjData, name: str) -> np.ndarray | None:
+def _transform(pose: Any) -> np.ndarray:
+    out = np.eye(4)
+    rotation = np.zeros(9)
+    mujoco.mju_quat2Mat(rotation, np.asarray(pose.quat_wxyz, float))
+    out[:3, :3] = rotation.reshape(3, 3)
+    out[:3, 3] = pose.position
+    return out
+
+
+def _frame_pose(model: mujoco.MjModel, data: mujoco.MjData, name: str) -> np.ndarray:
     pose = np.eye(4)
     body = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
     if body >= 0:
@@ -233,12 +278,12 @@ def _frame_pose(model: mujoco.MjModel, data: mujoco.MjData, name: str) -> np.nda
         pose[:3, :3] = data.site_xmat[site].reshape(3, 3)
         pose[:3, 3] = data.site_xpos[site]
         return pose
-    return None
+    raise ValueError(f"the model has no body or site {name!r}")
 
 
-def _moving_bodies(model: mujoco.MjModel, joints: list[int], objects: list[int]) -> list[int]:
-    """Bodies a plan moves: those at or below a body owning one of its joints, and
-    scene objects (which move when held)."""
+def _moving_bodies(model: mujoco.MjModel, joints: list[int], held: list[int]) -> list[int]:
+    """Bodies a plan moves: those at or below a body owning one of its joints, and the
+    held objects' bodies."""
     owners = {int(model.jnt_bodyid[j]) for j in joints}
     out = []
     for b in range(1, model.nbody):
@@ -247,7 +292,7 @@ def _moving_bodies(model: mujoco.MjModel, joints: list[int], objects: list[int])
             a = int(model.body_parentid[a])
         if a in owners:
             out.append(b)
-    return sorted(set(out) | {int(model.jnt_bodyid[j]) for j in objects})
+    return sorted(set(out) | set(held))
 
 
 class _Ghost:
@@ -261,10 +306,7 @@ class _Ghost:
         self._frames: dict[int, Any] = {}
         self._rgba: np.ndarray | None = None
 
-    def show(self, data: mujoco.MjData, joints: tuple[str, ...], rgba: np.ndarray) -> None:
-        model = self._model
-        ids = [mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, j) for j in joints]
-        bodies = _moving_bodies(model, [j for j in ids if j >= 0], _object_joints(model))
+    def show(self, data: mujoco.MjData, bodies: list[int], rgba: np.ndarray) -> None:
         if self._rgba is None or not np.array_equal(self._rgba, rgba) or set(self._frames) != set(bodies):
             self._build(bodies, rgba)
         for b, frame in self._frames.items():
@@ -371,7 +413,7 @@ class _ClientPreview:
             return
         configuration, lines = self._sample(chosen, mode)
         rgba = WITNESS_RGBA if mode == _WITNESS else GHOST_RGBA
-        self._ghost.show(preview.ghost_state(chosen, configuration), chosen.result.request.joints, rgba)
+        self._ghost.show(preview.ghost_state(chosen, configuration), preview.ghost_bodies(chosen), rgba)
         self.caption.content = _caption(lines)
 
     def _sample(self, chosen: _Preview, mode: str) -> tuple[tuple[float, ...], list[str]]:
@@ -383,8 +425,10 @@ class _ClientPreview:
             return tuple(waypoints[i]), [f"path waypoint {i + 1} of {len(waypoints)}", "the planner's own waypoint"]
         if mode == _TRAJECTORY:
             trajectory = result.trajectory
-            self._set_range(round(trajectory.duration * 100), 1)
-            t = min(float(self.position.value) / 100, trajectory.duration)
+            # Ticks of at most 10 ms; the last tick is exactly the trajectory's end.
+            ticks = max(1, math.ceil(trajectory.duration * 100))
+            self._set_range(ticks, 1)
+            t = trajectory.duration * min(int(self.position.value), ticks) / ticks
             positions, _, _ = trajectory.evaluate(t)
             return tuple(positions), [
                 f"trajectory at t = {t:.2f} s of {trajectory.duration:.2f} s",
@@ -418,11 +462,18 @@ class _ClientPreview:
 
 
 def record_preview(
-    result: Any, snapshot: Any, world: Any, *, period_ns: int = 20_000_000, waypoint_s: float = 0.5
+    result: Any,
+    snapshot: Any,
+    world: Any,
+    description: Any,
+    *,
+    period_ns: int = 20_000_000,
+    waypoint_s: float = 0.5,
 ) -> tuple[bytes, dict[str, Any]]:
     """Record a preview as a Viser recording: the planning snapshot, then the ghost at
-    each path waypoint (``waypoint_s`` apart), then at the trajectory's samples
-    (``result.trajectory.sample(period_ns)``, the planner's timing law at each tick).
+    each path waypoint (``waypoint_s`` apart), then, ``waypoint_s`` later, at each of
+    the trajectory's samples (``result.trajectory.sample(period_ns)``, the planner's
+    timing law at each tick) at its own time from the trajectory's start.
 
     Returns the recording and a report of every sample shown.
 
@@ -431,7 +482,7 @@ def record_preview(
     """
     from mj_viser.viewer import MujocoViewer
 
-    preview = PlanPreview(world)
+    preview = PlanPreview(world, description)
     preview.add("result", result, snapshot)
     chosen = preview.preview("result")
     assert chosen is not None
@@ -453,29 +504,38 @@ def record_preview(
             "path": [],
             "trajectory": [],
         }
-        joints = result.request.joints
+        bodies = preview.ghost_bodies(chosen)
+        clock = 0.0  # recording time, advanced exactly as the recorder's
+
+        def wait(seconds: float) -> None:
+            nonlocal clock
+            recorder.insert_sleep(seconds)
+            clock += seconds
+
         if result.path is not None:
             waypoints = result.path.waypoints
             for i, waypoint in enumerate(waypoints):
-                ghost.show(preview.ghost_state(chosen, tuple(waypoint)), joints, GHOST_RGBA)
+                if i:
+                    wait(waypoint_s)
+                ghost.show(preview.ghost_state(chosen, tuple(waypoint)), bodies, GHOST_RGBA)
                 label.text = f"path waypoint {i + 1} of {len(waypoints)}"
-                report["path"].append({"index": i, "time_s": len(report["path"]) * waypoint_s})
-                recorder.insert_sleep(waypoint_s)
+                report["path"].append({"index": i, "recorded_s": clock})
         if result.trajectory is not None:
+            if result.path is not None:
+                wait(waypoint_s)
             command = result.trajectory.sample(period_ns)
+            previous = None
             for t, positions in zip(command.time_from_start_ns, command.positions, strict=True):
-                ghost.show(preview.ghost_state(chosen, tuple(positions)), joints, GHOST_RGBA)
+                if previous is not None:
+                    wait((t - previous) / 1e9)  # the samples' own spacing; none after the last
+                ghost.show(preview.ghost_state(chosen, tuple(positions)), bodies, GHOST_RGBA)
                 label.text = f"trajectory at t = {t / 1e9:.3f} s"
-                report["trajectory"].append(int(t))
-                recorder.insert_sleep(period_ns / 1e9)
+                report["trajectory"].append({"time_ns": int(t), "recorded_s": clock})
+                previous = t
         recording = recorder.serialize()
     finally:
         viewer.close()
     return recording, report
-
-
-def _object_joints(model: mujoco.MjModel) -> list[int]:
-    return [j for j in range(model.njnt) if model.jnt_type[j] == mujoco.mjtJoint.mjJNT_FREE]
 
 
 def _caption(lines: list[str]) -> str:
