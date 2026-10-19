@@ -73,10 +73,25 @@ def check_images(model: mujoco.MjModel, out_dir: str) -> dict[str, Any]:
         raise SystemExit("a malformed reading left an older image to show")
     out["states"] = {name: status for name, (status, _) in states.items()}
 
+    # The board keeps its own, read-only copy: a camera that reuses its buffer does not
+    # change a reading already taken.
+    buffer = _image("red", (24, 32))
+    channels.reading("left_cam", 350_000_000, buffer)
+    buffer[:] = COLOURS["green"]
+    kept, _ = channels.image("left_cam")
+    assert kept is not None
+    if not np.array_equal(kept[0, 0], COLOURS["red"]):
+        raise SystemExit("a reused camera buffer changed a reading already taken")
+    out["kept_image_read_only"] = expect_raises(ValueError, lambda: kept.__setitem__((0, 0), 0))
+
     # A recording: each image at its time; a hidden image hides, and shows again.
     data = mujoco.MjData(model)
     with StateRecorder(model) as recorder:
-        out["refused"] = expect_raises(ValueError, lambda: recorder.image("bad", np.zeros((4, 4, 3), np.float32)))
+        out["refused"] = {
+            "float_image": expect_raises(ValueError, lambda: recorder.image("bad", np.zeros((4, 4, 3), np.float32))),
+            "list": expect_raises(ValueError, lambda: recorder.image("bad", [[0, 0, 0]])),  # type: ignore[arg-type]
+            "empty_width": expect_raises(ValueError, lambda: recorder.image("bad", np.zeros((4, 0, 3), np.uint8))),
+        }
         recorder.advance(0)
         recorder.show(data)
         recorder.image("left_cam", _image("red", (24, 32)))
@@ -114,6 +129,8 @@ def check_images(model: mujoco.MjModel, out_dir: str) -> dict[str, Any]:
     ]
     if visibility != [(0.3, False), (0.4, True)]:
         raise SystemExit(f"right_cam visibility over the recording: {visibility}")
+    if any(m.get("name", "") == f"{IMAGES}/bad" for _, m in messages):
+        raise SystemExit("a refused image left a node in the recording")
     out["recorded"] = [f"{t} s {name} {colour}" for t, name, colour in seen]
     with open(os.path.join(out_dir, "images.viser"), "wb") as f:
         f.write(recording)
@@ -139,7 +156,7 @@ def check_images(model: mujoco.MjModel, out_dir: str) -> dict[str, Any]:
         view.refresh(force=True)
         time.sleep(0.2)
         sent = [p.images_sent["left_cam"] - b for p, b in zip(panels, before, strict=True)]
-        if sent != [1, 1] or channels.coverage()["left_cam"]["readings"] != 6:
+        if sent != [1, 1] or channels.coverage()["left_cam"]["readings"] != 7:
             raise SystemExit(
                 f"5 readings between frames sent {sent} images; model counted {channels.coverage()['left_cam']}"
             )

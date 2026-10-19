@@ -16,6 +16,7 @@ from typing import Any
 import mujoco
 import numpy as np
 
+from mj_viser.channels import rgb_image
 from mj_viser.viewer import MujocoViewer
 
 TEXT = "/recording/text"
@@ -94,8 +95,10 @@ class StateRecorder:
             if node is not None:
                 node.visible = False
             return
-        if image.dtype != np.uint8 or image.ndim != 3 or image.shape[2] != 3:
-            raise ValueError(f"{name}: not an H×W×3 uint8 image: {image.dtype} {image.shape}")
+        checked, reason = rgb_image(image)
+        if checked is None:
+            raise ValueError(f"{name}: {reason}")
+        image = checked
         if node is not None:
             node.image = image
             node.visible = True
