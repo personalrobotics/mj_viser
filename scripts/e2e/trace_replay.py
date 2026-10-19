@@ -1,20 +1,18 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Siddhartha Srinivasa
 
-"""Trace replay's contract with any trace and world, without ssrobot.
+"""The ssrobot integration's trace replay, on stand-in records (needs ssrobot installed).
 
 A stand-in trace, shaped like ssrobot's, of the fixture model: two snapshots of states A
 and B, a submitted command and its statuses between them. The checks, on the recording:
 each frame shows MuJoCo's kinematics of its snapshot at the snapshot's time; the label
 shows each event at its recorded time; the report accounts for every interval without a
-frame; a trace of another world, or with no snapshot, is refused before anything
-renders; and the conversion command without ssrobot says what it needs.
+frame; and a trace of another world, or with no snapshot, is refused before anything
+renders.
 """
 
 from __future__ import annotations
 
-import subprocess
-import sys
 from dataclasses import dataclass
 from types import SimpleNamespace as NS
 from typing import Any
@@ -24,7 +22,8 @@ import mujoco
 from e2e.fixtures import STATES, expect_raises, kinematics
 from e2e.oracles import check_world_poses, recorded_local_poses, replay_recording
 from mj_viser import MujocoViewer
-from mj_viser.replay import LABEL, record_trace
+from mj_viser.integrations.ssrobot.replay import record_trace
+from mj_viser.recording import TEXT as LABEL
 
 
 @dataclass(frozen=True)
@@ -121,13 +120,4 @@ def check_replay(model: mujoco.MjModel) -> dict[str, Any]:
         "label": "arm_q = [0.300, 0.100] (t = 0.000 s, stale)",
         "updated_at_ns": 1_500_000_000,
     }
-    try:
-        import ssrobot  # noqa: F401
-    except ModuleNotFoundError:
-        result = subprocess.run(
-            [sys.executable, "-I", "-m", "mj_viser.replay", "bundle", "out"], capture_output=True, text=True
-        )
-        if result.returncode != 2 or "needs ssrobot" not in result.stderr:
-            raise SystemExit(f"the conversion command without ssrobot: {result}")
-        out["command_without_ssrobot"] = result.stderr.strip()
     return out
