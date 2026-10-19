@@ -8,6 +8,10 @@ Nothing else in mj_viser does.
 
 - :func:`render_source` adapts ``ssrobot.mujoco.render_handle(ctx)`` to
   :class:`mj_viser.RenderSource` for :class:`mj_viser.LiveView`.
+- :class:`TraceChannels` is a trace sink that keeps a :class:`mj_viser.ChannelBoard`
+  of the run's named channels, executions, scene, and events.
+- :mod:`mj_viser.integrations.ssrobot.replay` converts traces and run bundles into
+  Viser recordings (``python -m mj_viser.integrations.ssrobot.replay BUNDLE OUT_DIR``).
 """
 
 from __future__ import annotations
@@ -24,7 +28,11 @@ _REQUIRED = frozenset({"ssrobot", "mujoco", "sscbirrt"})
 try:
     # ssrobot is optional and not installed for type checking.
     import ssrobot  # type: ignore[import-not-found,unused-ignore]
-    from ssrobot.mujoco import render_handle  # type: ignore[import-not-found,unused-ignore]
+    from ssrobot import open_bundle  # type: ignore[import-not-found,unused-ignore]
+    from ssrobot.mujoco import (  # type: ignore[import-not-found,unused-ignore]
+        materialize_world,
+        render_handle,
+    )
 except ModuleNotFoundError as e:
     if (e.name or "").split(".")[0] not in _REQUIRED:
         raise
@@ -33,7 +41,9 @@ except ModuleNotFoundError as e:
         name=e.name,
     ) from e
 
-__all__ = ["render_source"]
+from mj_viser.integrations.ssrobot.channels import TraceChannels  # noqa: E402
+
+__all__ = ["TraceChannels", "materialize_world", "open_bundle", "render_source"]
 
 # ssrobot's codes for a render handle that can no longer describe its runtime: the
 # runtime reopened (make a new handle) or is not open.

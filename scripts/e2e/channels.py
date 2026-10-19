@@ -1,21 +1,22 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Siddhartha Srinivasa
 
-"""Named channels, executions, and scene, live and per client, without ssrobot.
+"""Channel boards and their per-browser panels, without ssrobot.
 
-A stand-in description declares four channels: joint positions of a group, a pose, a
-depth image, and joint velocities the runtime does not provide. A stand-in run opens, observes,
-submits, and changes its scene. The checks: each channel is displayed, unavailable, or
-unsupported as declared; readings are shown by joint name; a channel goes stale when
-its reading ages; markup in trace text is escaped; and with two browsers connected to a
-LiveView, the channel one browser picks to plot is plotted for it alone.
+A board declares four channels: joint positions with element names, a pose, joint
+velocities that are not provided, and an unsupported depth image. It gets readings,
+status lines (one carrying markup), and an event. The checks: each channel is
+displayed, unavailable, or unsupported as declared; readings are shown by element name
+with their time; status lines keep first-set order and can be removed; a channel goes
+stale when the board's time passes without a reading; markup is escaped in panels; and
+with two browsers connected to a LiveView, the channel one browser picks to plot is
+plotted for it alone.
 """
 
 from __future__ import annotations
 
 import time
 from importlib.metadata import version
-from types import SimpleNamespace as NS
 from typing import Any
 
 import msgspec
@@ -25,39 +26,7 @@ from websockets.sync.client import connect
 
 from e2e.live_view import _Source
 from e2e.oracles import tags_in
-from mj_viser import ChannelModel, LiveView
-
-DESCRIPTION = NS(
-    groups=(NS(name="arm", joints=("shoulder", "elbow")),),
-    channels=(
-        NS(name="arm_q", quantity="joint_position", source="arm"),
-        NS(name="arm_qd", quantity="joint_velocity", source="arm"),
-        NS(name="hand_pose", quantity="pose", source="hand"),
-        NS(name="wrist_depth", quantity="depth_image", source="wrist_camera"),
-    ),
-)
-
-
-def _reading(channel: str, t: int, value: Any) -> NS:
-    return NS(channel=channel, stamp=NS(time_ns=t), value=value)
-
-
-def _records() -> list[NS]:
-    pose = (0.1, 0.2, 0.3, 1.0, 0.0, 0.0, 0.0)
-    rows = [
-        ("opened", 0, NS(runtime="stand-in", clock_mode="manual", channels=("arm_q", "hand_pose", "wrist_depth"))),
-        ("observed", 0, NS(readings=(_reading("arm_q", 0, (0.3, 0.1)),))),
-        ("submitted", 100_000_000, NS(execution="e1", command=NS(group="arm"))),
-        ("status", 100_000_000, NS(execution="e1", state="active", diagnostic=None)),
-        (
-            "observed",
-            500_000_000,
-            NS(readings=(_reading("arm_q", 500_000_000, (-0.7, 0.25)), _reading("hand_pose", 500_000_000, pose))),
-        ),
-        ("status", 600_000_000, NS(execution="e1", state="failed", diagnostic=NS(code="<b>stalled</b>"))),
-        ("scene", 600_000_000, NS(revision=1, attachments=(NS(object="cup", end_effector="hand", held=True),))),
-    ]
-    return [NS(sequence=i, kind=k, time_ns=t, payload=p) for i, (k, t, p) in enumerate(rows)]
+from mj_viser import ChannelBoard, LiveView
 
 
 def _frames(ws: Any, seconds: float) -> list[dict[str, Any]]:
@@ -90,42 +59,45 @@ CAMERA = {
 
 def check_channels(model: mujoco.MjModel) -> dict[str, Any]:
     out: dict[str, Any] = {}
-    channels = ChannelModel(DESCRIPTION, stale_after_ns=1_000_000_000)
-    for record in _records():
-        channels(record)  # the sink interface
-    coverage = {name: c["status"] for name, c in channels.coverage().items()}
+    board = ChannelBoard(stale_after_ns=1_000_000_000)
+    board.declare("arm_q", quantity="joint_position", labels=("shoulder", "elbow"))
+    board.declare("arm_qd", quantity="joint_velocity", available=False)
+    board.declare("hand_pose", quantity="pose", labels=("x", "y", "z", "qw", "qx", "qy", "qz"))
+    board.declare("wrist_depth", kind="unsupported", quantity="depth_image", note="depth images are not shown")
+    board.reading("arm_q", 0, (0.3, 0.1))
+    board.reading("arm_q", 500_000_000, (-0.7, 0.25))
+    board.reading("hand_pose", 500_000_000, (0.1, 0.2, 0.3, 1.0, 0.0, 0.0, 0.0))
+    board.set_status("task", "e1: <i>arm</i> · submitted → failed")  # markup is escaped where shown
+    board.set_status("scene", "scene revision 1")
+    board.event("opened")
+    board.advance(600_000_000)
+    coverage = {name: c["status"] for name, c in board.coverage().items()}
     expected = {"arm_q": "displayed", "arm_qd": "unavailable", "hand_pose": "displayed", "wrist_depth": "unsupported"}
     if coverage != expected:
         raise SystemExit(f"channel coverage {coverage}, expected {expected}")
     out["coverage"] = coverage
-    lines = channels.lines()
+    lines = board.lines()
     for expect in (
+        "t = 0.600 s",
+        "e1: <i>arm</i> · submitted → failed",
+        "scene revision 1",
         "arm_q = shoulder -0.700, elbow 0.250 (t = 0.500 s)",
         "hand_pose = x 0.100, y 0.200, z 0.300, qw 1.000, qx 0.000, qy 0.000, qz 0.000 (t = 0.500 s)",
-        "e1: SimpleNamespace on arm · submitted → active → failed (<b>stalled</b>)",  # escaped in markup
-        "scene revision 1: cup held by hand",
+        "opened",
     ):
         if expect not in lines:
             raise SystemExit(f"{expect!r} not among {lines}")
-    # Many executions: only the latest three are shown, so the panel keeps its size.
-    for i in range(2, 6):
-        channels(
-            NS(
-                sequence=90 + i,
-                kind="submitted",
-                time_ns=700_000_000,
-                payload=NS(execution=f"e{i}", command=NS(group="<i>arm</i>" if i == 5 else "arm")),
-            )
-        )
-    shown = [line for line in channels.lines() if line.startswith(("e", "…"))]
-    if shown[0] != "…: 2 earlier" or [x.split(":")[0] for x in shown[1:]] != ["e3", "e4", "e5"]:
-        raise SystemExit(f"executions shown: {shown}")
-    out["executions_shown"] = shown[0]
-    channels(NS(sequence=99, kind="stepped", time_ns=1_600_000_000, payload=None))
-    status = {c.name: c.status for c in channels.channels()}
+    if lines.index("e1: <i>arm</i> · submitted → failed") > lines.index("scene revision 1"):
+        raise SystemExit(f"status lines out of first-set order: {lines}")
+    board.set_status("scene", None)
+    if "scene revision 1" in board.lines():
+        raise SystemExit("a removed status line is still shown")
+    board.advance(1_600_000_000)
+    status = {c.name: c.status for c in board.channels()}
     if status["arm_q"] != "stale" or status["arm_qd"] != "unavailable":
         raise SystemExit(f"after 1.1 s without readings: {status}")
     out["stale_after_1s"] = status["arm_q"]
+    channels = board
 
     # Live: two browsers, one picks a channel to plot.
     source = _Source(model)

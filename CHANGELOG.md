@@ -9,12 +9,21 @@
   simulation by raising `mj_viser.SourceStale(reason)`. `LiveView` no longer
   interprets other libraries' error codes, so any other error propagates. `open()`
   raises `SourceStale`, and closes the viewer, when the first frame cannot be rendered.
-- ssrobot adapters live in the optional `mj_viser.integrations.ssrobot`, which for live
-  viewing is the only part of mj_viser that imports ssrobot. Migration: `LiveView(render_handle(ctx))` becomes
-  `LiveView(render_source(ctx))`, with `render_source` from that module.
+- ssrobot adapters live in the optional `mj_viser.integrations.ssrobot`, the only part of
+  mj_viser that imports ssrobot (#51). Migration:
+  - `LiveView(render_handle(ctx))` becomes `LiveView(render_source(ctx))`.
+  - `ChannelModel(description)` becomes `TraceChannels(description)`, still the trace
+    sink; pass its `.board` to `LiveView(channels=)`.
+  - `python -m mj_viser.replay` becomes `python -m mj_viser.integrations.ssrobot.replay`,
+    and `record_trace` and `convert_bundle` move to that module.
+- `ChannelBoard` is the general channel and status model that `LiveView` panels and
+  recordings show; callers feed it named readings, status lines, and events. The panels'
+  "Executions" folder is now "Status".
 
 ### Added
 
+- `StateRecorder` records caller-supplied states, text, and RGB images of any MuJoCo model
+  as a native Viser recording, at the times the caller gives (#51).
 - `PlanPreview` shows ssrobot planning results as a ghost of the moving robot in the
   scene they were planned in (#3). Each browser picks a result and scrubs its exact path
   waypoints or its trajectory, evaluated from the planner's timing law, in its own scene.

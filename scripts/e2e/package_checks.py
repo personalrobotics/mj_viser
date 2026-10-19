@@ -17,8 +17,6 @@ import tokenize
 import mj_viser
 
 INTEGRATIONS = "mj_viser.integrations."
-# Core modules that still reach ssrobot, until #51 moves them behind the integration.
-_PENDING = {"mj_viser.replay"}
 
 
 def check_boundary(modules: list[str]) -> dict[str, object]:
@@ -38,7 +36,7 @@ def check_boundary(modules: list[str]) -> dict[str, object]:
             dynamic = a.string in ("import_module", "__import__") and c.string.strip("'\"").split(".")[0] == "ssrobot"
             if imports or dynamic:
                 reaching.append(m)
-    reaching = sorted(set(reaching) - _PENDING)
+    reaching = sorted(set(reaching))
     if reaching:
         raise SystemExit(f"core modules reach ssrobot: {reaching}")
     if any(name.split(".")[0] == "ssrobot" for name in sys.modules):
@@ -54,7 +52,6 @@ def check_boundary(modules: list[str]) -> dict[str, object]:
     return {
         "ssrobot_installed": False,
         "core_modules": core,
-        "pending": sorted(_PENDING),
         "integration": integration,
         "broken_installations": _broken_installations(),
     }
@@ -71,7 +68,7 @@ def _broken_installations() -> dict[str, str]:
         # ssrobot is there, but its own dependency is not: report that dependency.
         "missing_dependency_of_ssrobot": ("import mj_viser_test_absent_dependency\n", None),
         # ssrobot is there without its MuJoCo extra's module: report ssrobot as needed.
-        "missing_mujoco_extra": ("", "ssrobot.mujoco"),
+        "missing_mujoco_extra": ("open_bundle = None\n", "ssrobot.mujoco"),
     }
     out = {}
     for case, (init, expected_name) in cases.items():
