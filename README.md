@@ -108,7 +108,7 @@ from ssrobot.mujoco import materialize_world_from
 from mj_viser import PlanPreview
 
 world = materialize_world_from(package, world=runtime.world(), scene=scene)
-preview = PlanPreview(world, live=view)   # view: your LiveView
+preview = PlanPreview(world, description, live=view)   # view: your LiveView
 view.viewer.add_panel(preview)
 snapshot = ctx.snapshot()
 preview.add("lift", arm.plan_to_end_effector_offset((0, 0, 1), 0.05, snapshot=snapshot, planner=planner), snapshot)

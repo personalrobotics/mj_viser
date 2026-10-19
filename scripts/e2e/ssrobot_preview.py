@@ -16,8 +16,10 @@ straight up). The run happens twice under a JSONL trace, without and with previe
   to its last path waypoint, the other "offset" to the end of its trajectory. Each
   browser's ghost puts the tool frame where ssrobot's planning scene puts it for that
   sample, and neither browser receives the other's ghost;
-- after the scene changes (the object declared held), the previews go stale and the
-  results are refused.
+- after the scene changes (the cylinder declared held), the previews go stale and the
+  results are refused; a lift planned with the cylinder held is previewed, and the
+  ghost cylinder rides the hand exactly as ssrobot's planning scene moves it;
+- the recorded preview shows each trajectory sample at its own time.
 
 The two traces must be byte-identical. Writes, per robot, the results, the preview
 recording of "offset" (record_preview) and its report, and ssrobot_preview.json.
@@ -37,6 +39,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import msgspec  # noqa: E402
+import mujoco  # noqa: E402
 import numpy as np  # noqa: E402
 from ssrobot import JsonlTrace, RobotContext, dumps, load_installed_package  # noqa: E402
 from ssrobot.mujoco import MujocoRuntime, materialize_world_from, render_handle  # noqa: E402
@@ -44,6 +47,7 @@ from ssrobot.planning import CBiRRT, SsikKinematics  # noqa: E402
 from websockets.sync.client import connect  # noqa: E402
 
 from e2e.channels import CAMERA, _frames  # noqa: E402
+from e2e.oracles import replay_recording  # noqa: E402
 from mj_viser import LiveView, PlanPreview  # noqa: E402
 from mj_viser.preview import record_preview  # noqa: E402
 
@@ -68,6 +72,26 @@ def _plans(ctx: Any, package: Any, manipulator: str) -> tuple[Any, dict[str, Any
         if not result.succeeded:
             raise SystemExit(f"{name} plan {result.status.value}: {result.diagnostics}")
     return snapshot, results
+
+
+def _held_plan(ctx: Any, package: Any, manipulator: str) -> tuple[Any, Any]:
+    """With the cylinder declared held: a snapshot and a 5 cm lift planned in it."""
+    arm = ctx.manipulator(manipulator)
+    planner = CBiRRT(package.description, kinematics=SsikKinematics.from_package(package, arm.name))
+    snapshot = ctx.snapshot()
+    result = arm.plan_to_end_effector_offset((0.0, 0.0, 1.0), LIFT, snapshot=snapshot, planner=planner)
+    if not result.succeeded:
+        raise SystemExit(f"held lift plan {result.status.value}: {result.diagnostics}")
+    return snapshot, result
+
+
+def _matrix(pose: Any) -> np.ndarray:
+    out = np.eye(4)
+    rotation = np.zeros(9)
+    mujoco.mju_quat2Mat(rotation, np.asarray(pose.quat_wxyz, float))
+    out[:3, :3] = rotation.reshape(3, 3)
+    out[:3, 3] = pose.position
+    return out
 
 
 def _choose(ws: Any, frames: list[dict[str, Any]], label: str, value: Any) -> None:
@@ -101,12 +125,13 @@ def run(name: str, scene: Path, out: Path, preview: bool) -> dict[str, Any]:
         snapshot, results = _plans(ctx, package, manipulator)
         if not preview:
             ctx.attach("cylinder", description.manipulator(manipulator).end_effector)  # as the previewed run does
+            _held_plan(ctx, package, manipulator)
             return result
         for key, r in results.items():
             (out / f"{key}.result.json").write_text(dumps(r) + "\n")
         world = materialize_world_from(package, world=runtime.world(), scene=scene)
         view = LiveView(render_handle(ctx), max_rate_hz=None, port=0, label=name)
-        previews = PlanPreview(world, live=view)
+        previews = PlanPreview(world, description, live=view)
         view.viewer.add_panel(previews)
         url = view.open().replace("http://", "ws://")
         for key, r in results.items():
@@ -161,11 +186,55 @@ def run(name: str, scene: Path, out: Path, preview: bool) -> dict[str, Any]:
                 result["stale_result_refused"] = str(e)
             else:
                 raise SystemExit(f"{name}: a result from an earlier scene revision was accepted")
+
+            # Held: the cylinder, declared held, rides the hand in the ghost exactly as the
+            # planning scene moves it.
+            held_snapshot, held = _held_plan(ctx, package, manipulator)
+            previews.add("held", held, held_snapshot)
+            time.sleep(0.3)
+            seen[0] += _frames(clients[0], 0.5)
+            _choose(clients[0], seen[0], "Result", "held")
+            time.sleep(0.3)
+            seen[0] += _frames(clients[0], 0.5)
+            _choose(clients[0], seen[0], "Show", "trajectory")
+            time.sleep(0.3)
+            seen[0] += _frames(clients[0], 0.5)
+            _choose(clients[0], seen[0], "Sample", 10**6)
+            seen[0] += _frames(clients[0], 1.5)
+            ghost = _ghost_poses(seen[0])
+            attachment = next(a for a in held_snapshot.attachments if a.object == "cylinder")
+            effector = description.end_effector(attachment.end_effector).frame
+            planning = ctx.planning_scene(held_snapshot, held.request.group)
+            hand = _matrix(planning.forward_kinematics(held.trajectory.goal, effector))
+            expected = hand @ _matrix(attachment.transform)
+            cylinder = world.model.body("cylinder").id
+            position, quat = ghost[f"/plan_preview/b{cylinder}"]
+            gap = float(np.abs(position - expected[:3, 3]).max())
+            rotation = np.zeros(9)
+            mujoco.mju_quat2Mat(rotation, quat)
+            turn = float(np.abs(rotation.reshape(3, 3) - expected[:3, :3]).max())
+            if gap > 1e-6 or turn > 1e-6:
+                raise SystemExit(f"{name}: the held cylinder's ghost is off by {gap} m, {turn}")
+            result["held_object_ghost_error"] = {"position_m": gap, "rotation": turn}
         finally:
             for ws in clients:
                 ws.close()
             view.close()
-        recording, report = record_preview(results["offset"], snapshot, world)
+        recording, report = record_preview(results["offset"], snapshot, world, description)
+        # The recording shows each trajectory sample at its own time, the last too.
+        label_times = [
+            round(t, 6)
+            for t, m in replay_recording(recording)
+            if m.get("name") == "/plan_preview/label" and "trajectory" in str((m.get("updates") or {}).get("text", ""))
+        ]
+        expected_times = [round(s["recorded_s"], 6) for s in report["trajectory"]]
+        start = expected_times[0]
+        if (
+            label_times != expected_times
+            or [round(start + s["time_ns"] / 1e9, 6) for s in report["trajectory"]] != expected_times
+        ):
+            raise SystemExit(f"{name}: trajectory samples recorded at {label_times}, expected {expected_times}")
+        intervals = np.diff([s["time_ns"] for s in report["trajectory"]])
         (out / "offset.preview.viser").write_bytes(recording)
         (out / "offset.preview.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
         result.update(
@@ -173,6 +242,7 @@ def run(name: str, scene: Path, out: Path, preview: bool) -> dict[str, Any]:
             snapshot=snapshot.fingerprint(),
             recording_sha256=hashlib.sha256(recording).hexdigest(),
             recorded_samples={"path": len(report["path"]), "trajectory": len(report["trajectory"])},
+            recorded_final_interval_ns=int(intervals[-1]),
         )
     return result
 
