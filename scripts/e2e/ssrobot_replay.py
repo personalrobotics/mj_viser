@@ -12,7 +12,7 @@ For each robot, one deterministic run in its reference scene: the manipulator's 
 move 0.15 rad and settle, a snapshot every 10 ticks, every channel but depth observed at the start
 and then every 50 ticks, and the cylinder declared held and then released partway. The run is
 bundled with ``ssrobot.write_bundle``. Then, with MuJoCo runtimes and robot contexts made
-unusable, ``mj_viser.replay`` converts the bundle; the documented command converts a
+unusable, ``mj_viser.integrations.ssrobot.replay`` converts the bundle; the documented command converts a
 moved copy. The checks, on the recording itself:
 
 - every frame puts every body and geom where the runtime had it at that snapshot;
@@ -62,10 +62,9 @@ from ssrobot.mujoco import MujocoRuntime, render_handle  # noqa: E402
 
 import mj_viser  # noqa: E402
 from e2e.oracles import check_world_poses, recorded_local_poses, replay_recording  # noqa: E402
-from mj_viser import (
-    ChannelModel,  # noqa: E402
-    replay,  # noqa: E402
-)
+from mj_viser.integrations.ssrobot import TraceChannels  # noqa: E402
+from mj_viser.integrations.ssrobot.replay import convert_bundle  # noqa: E402
+from mj_viser.recording import IMAGES, TEXT  # noqa: E402
 
 faulthandler.dump_traceback_later(600, exit=True)
 
@@ -82,7 +81,7 @@ OBSERVE_EVERY = 50  # ticks
 POSE_ATOL = 1e-4
 
 
-def run(name: str, scene: Path, out: Path) -> tuple[Path, list[tuple[int, Any, Any]], ChannelModel]:
+def run(name: str, scene: Path, out: Path) -> tuple[Path, list[tuple[int, Any, Any]], Any]:
     """Run, bundle, and return the bundle, per snapshot the runtime's own state, and the
     channel model a live view would have shown, fed as a sink during the run."""
     module, manipulator_name = ROBOTS[name]
@@ -93,10 +92,11 @@ def run(name: str, scene: Path, out: Path) -> tuple[Path, list[tuple[int, Any, A
     trace_path = out / "run" / "trace.jsonl"
     trace_path.parent.mkdir(parents=True)
     truth: list[tuple[int, Any, Any]] = []  # (time_ns, model, data) as the runtime had them
-    live = ChannelModel(description)
+    live_channels = TraceChannels(description)
+    live = live_channels.board
     with (
         JsonlTrace(trace_path) as trace,
-        RobotContext(description, runtime := MujocoRuntime(package, scene=scene), sinks=[trace, live]) as ctx,
+        RobotContext(description, runtime := MujocoRuntime(package, scene=scene), sinks=[trace, live_channels]) as ctx,
     ):
         handle = render_handle(ctx)
         # Every channel the runtime provides, except depth (not shown).
@@ -150,7 +150,7 @@ def convert_without_runtime(bundle: Path, out: Path) -> dict[str, Any]:
     RobotContext.__init__ = _no_runtime  # type: ignore[method-assign]
     mujoco.mj_step = mujoco.mj_forward = _no_runtime
     try:
-        return replay.convert_bundle(bundle, out)
+        return convert_bundle(bundle, out)
     finally:
         MujocoRuntime.open, RobotContext.__init__, mujoco.mj_step, mujoco.mj_forward = saved  # type: ignore[method-assign]
 
@@ -159,7 +159,7 @@ def label_texts(messages: list[tuple[float, dict[str, Any]]]) -> list[tuple[floa
     """The status label's text over recording time."""
     out = []
     for t, m in messages:
-        if m.get("name") != replay.LABEL:
+        if m.get("name") != TEXT:
             continue
         text = (m.get("props") or m.get("updates") or {}).get("text")
         if text is not None:
@@ -179,7 +179,7 @@ def _tree(root: Path) -> dict[str, str]:
     }
 
 
-def check(name: str, bundle: Path, truth: list[tuple[int, Any, Any]], live: ChannelModel, out: Path) -> dict[str, Any]:
+def check(name: str, bundle: Path, truth: list[tuple[int, Any, Any]], live: Any, out: Path) -> dict[str, Any]:
     converted = out / "converted"
     report = convert_without_runtime(bundle, converted)
     recording = (converted / "recording.viser").read_bytes()
@@ -254,7 +254,7 @@ def check(name: str, bundle: Path, truth: list[tuple[int, Any, Any]], live: Chan
         recorded = [
             (t, (m.get("props") or m.get("updates") or {})["_data"])
             for t, m in messages
-            if m.get("name") == f"/replay/images/{channel}" and "_data" in (m.get("props") or m.get("updates") or {})
+            if m.get("name") == f"{IMAGES}/{channel}" and "_data" in (m.get("props") or m.get("updates") or {})
         ]
         # At each observation's time, the image showing is the observed one. Viser does
         # not resend an image whose JPEG matches the last sent, so updates can be fewer.
@@ -279,7 +279,9 @@ def check(name: str, bundle: Path, truth: list[tuple[int, Any, Any]], live: Chan
     moved.parent.mkdir()
     shutil.move(str(bundle), moved)
     again = out / "converted-moved"
-    subprocess.run([sys.executable, "-I", "-m", "mj_viser.replay", str(moved), str(again)], check=True)
+    subprocess.run(
+        [sys.executable, "-I", "-m", "mj_viser.integrations.ssrobot.replay", str(moved), str(again)], check=True
+    )
     shutil.move(str(moved), bundle)
     same = {f: (converted / f).read_bytes() == (again / f).read_bytes() for f in ("recording.viser", "conversion.json")}
     if not all(same.values()):
@@ -295,7 +297,9 @@ def check(name: str, bundle: Path, truth: list[tuple[int, Any, Any]], live: Chan
     inside = {}
     for case, dest in (("inside", bundle / "replay"), ("through_symlink", link / "replay")):
         result = subprocess.run(
-            [sys.executable, "-I", "-m", "mj_viser.replay", str(bundle), str(dest)], capture_output=True, text=True
+            [sys.executable, "-I", "-m", "mj_viser.integrations.ssrobot.replay", str(bundle), str(dest)],
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 2 or "inside the bundle" not in result.stderr:
             raise SystemExit(f"{name}: an output {case} the bundle was not refused: {result}")
@@ -318,7 +322,9 @@ def check(name: str, bundle: Path, truth: list[tuple[int, Any, Any]], live: Chan
             target.write_text(target.read_text().replace("rgba=", "rgba= "))
         dest = out / f"converted-{case}"
         result = subprocess.run(
-            [sys.executable, "-I", "-m", "mj_viser.replay", str(broken), str(dest)], capture_output=True, text=True
+            [sys.executable, "-I", "-m", "mj_viser.integrations.ssrobot.replay", str(broken), str(dest)],
+            capture_output=True,
+            text=True,
         )
         if result.returncode == 0 or dest.exists() or any(out.glob(f".converted-{case}.*")):
             raise SystemExit(f"{name}: a bundle with a {case} scene file was converted: {result}")

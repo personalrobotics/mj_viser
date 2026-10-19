@@ -12,7 +12,7 @@ two-point trajectory, then settled, every channel but depth observed every 50 ti
 twice under a JSONL trace:
 
 - without a viewer;
-- with a LiveView refreshed every tick, with channel panels fed by a ChannelModel sink,
+- with a LiveView refreshed every tick, with channel panels fed by a TraceChannels sink,
   which meanwhile vandalizes the data it holds.
   A browser connects and never reads; at tick 100 it disconnects while the view stays
   open and keeps rendering; at tick 200 the view detaches and a new view attaches with a
@@ -48,8 +48,8 @@ from ssrobot import (  # noqa: E402
 from ssrobot.mujoco import MujocoRuntime  # noqa: E402
 from websockets.sync.client import connect  # noqa: E402
 
-from mj_viser import ChannelModel, LiveView, SourceStale  # noqa: E402
-from mj_viser.integrations.ssrobot import render_source  # noqa: E402
+from mj_viser import LiveView, SourceStale  # noqa: E402
+from mj_viser.integrations.ssrobot import TraceChannels, render_source  # noqa: E402
 
 faulthandler.dump_traceback_later(600, exit=True)
 
@@ -110,7 +110,7 @@ def _check_frame(view: LiveView, runtime: MujocoRuntime, joints: tuple[str, ...]
         raise SystemExit(f"rendered joints {shown} differ from the runtime's {truth}")
 
 
-def _check_channels(channels: ChannelModel, observation: Any) -> None:
+def _check_channels(channels: Any, observation: Any) -> None:
     """The live channel model holds exactly what the runtime just observed."""
     for reading in observation.readings:
         if hasattr(reading.value, "shape"):  # an image: the panel's image is the runtime's
@@ -131,11 +131,12 @@ def run(name: str, out: Path, viewed: bool) -> dict[str, Any]:
     group = next(g for g in description.groups if g.name == description.manipulator(manipulator).group)
     mode = "viewed" if viewed else "plain"
     result: dict[str, Any] = {}
-    channels = ChannelModel(description)  # the viewed run's channel panels read this sink
+    trace_channels = TraceChannels(description)  # the viewed run's channel panels read its board
+    channels = trace_channels.board
     with (
         JsonlTrace(out / f"{name}-{mode}.trace.jsonl") as trace,
         RobotContext(
-            description, runtime := MujocoRuntime(package), sinks=[trace, channels] if viewed else [trace]
+            description, runtime := MujocoRuntime(package), sinks=[trace, trace_channels] if viewed else [trace]
         ) as ctx,
     ):
         quantity = {c.name: str(c.quantity) for c in description.channels}

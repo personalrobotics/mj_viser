@@ -229,6 +229,7 @@ jobs:
           PYOPENGL_PLATFORM: osmesa
         run: |
           mkdir -p ssrobot-replay && cd ssrobot-replay
+          ../.ssrobot/bin/python -I ../scripts/e2e/ssrobot_adapters.py adapters
           ../.ssrobot/bin/python -I ../scripts/e2e/ssrobot_replay.py ../.ssrobot-src/references/scenes .
           cat ssrobot_replay.json
           sha256sum */converted/* > SHA256SUMS
@@ -239,6 +240,7 @@ jobs:
           path: |
             ssrobot-replay/ssrobot_replay.json
             ssrobot-replay/SHA256SUMS
+            ssrobot-replay/adapters/
             ssrobot-replay/*/bundle/
             ssrobot-replay/*/converted/
           if-no-files-found: error
