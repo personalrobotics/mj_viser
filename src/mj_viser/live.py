@@ -3,11 +3,10 @@
 
 """Live view of a running simulation through a read-only render source.
 
-A render source owns its own copy of the model and state, refreshed only when asked,
-so nothing a viewer does can reach the simulation. ssrobot's
-``ssrobot.mujoco.render_handle(ctx)`` is one: pass it to :class:`LiveView` and call
-:meth:`LiveView.refresh` from your loop. mj_viser does not import ssrobot; any object
-with the same shape works.
+A render source (:class:`RenderSource`) owns its own copy of the model and state,
+refreshed only when asked, so nothing a viewer does can reach the simulation. Pass one
+to :class:`LiveView` and call :meth:`LiveView.refresh` from your loop. Any simulator
+can provide one; ``mj_viser.integrations.ssrobot.render_source(ctx)`` adapts ssrobot's.
 """
 
 from __future__ import annotations
@@ -15,23 +14,28 @@ from __future__ import annotations
 import math
 import time
 import webbrowser
-from typing import Any, Protocol
+from typing import Protocol
 
 import mujoco
 
 from mj_viser.channels import ChannelModel, ChannelPanels
 from mj_viser.viewer import MujocoViewer
 
-# Errors a render source raises when it can no longer describe its simulation, by their
-# ``code``: the runtime reopened (make a new source) or is not open.
-_STALE_CODES = frozenset({"stale_render", "not_open"})
+
+class SourceStale(Exception):
+    """Raised by :meth:`RenderSource.capture` when the source can no longer describe
+    its simulation (for example, the simulation reopened); make a new source."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 class RenderFrame(Protocol):
     """What a source's data shows after a capture."""
 
-    time: Any
-    """Simulation time; ``time.time_ns`` is shown on the viewer."""
+    time_ns: int
+    """Simulation time, in nanoseconds."""
     revision: int
     """Scene revision."""
     world: str
@@ -49,7 +53,11 @@ class RenderSource(Protocol):
     """Identity of the model and scene ``model`` was copied from."""
 
     def capture(self) -> RenderFrame:
-        """Copy the simulation's current state into ``data`` and describe it."""
+        """Copy the simulation's current state into ``data`` and describe it.
+
+        Raises:
+            SourceStale: If the source can no longer describe its simulation.
+        """
         ...
 
 
@@ -77,7 +85,8 @@ class LiveView:
     ) -> None:
         """
         Args:
-            source: The render source, for example ``ssrobot.mujoco.render_handle(ctx)``.
+            source: The render source, for example
+                ``mj_viser.integrations.ssrobot.render_source(ctx)``.
             expected_world: If given, the scene identity the source must describe;
                 anything else is refused before rendering.
             channels: A :class:`~mj_viser.channels.ChannelModel` that the simulation
@@ -112,8 +121,8 @@ class LiveView:
 
     @property
     def stale(self) -> str | None:
-        """Why the source can no longer be rendered (for example ``"stale_render"``
-        after the simulation reopened), or None. A stale view renders nothing more;
+        """Why the source can no longer be rendered (the :class:`SourceStale` reason, or
+        ``"world_changed"``), or None. A stale view renders nothing more;
         attach a new one with a new source."""
         return self._stale
 
@@ -163,18 +172,15 @@ class LiveView:
             return None
         try:
             frame = self._source.capture()
-        except Exception as e:
-            code = getattr(e, "code", None)
-            if code not in _STALE_CODES:
-                raise
-            self._mark_stale(code)
+        except SourceStale as e:
+            self._mark_stale(e.reason)
             return None
         if frame.world != self._world:
             self._mark_stale("world_changed")
             return None
         self._frame = frame
         self.viewer.update(self._source.data)
-        self.viewer.set_hud("runtime", f"t = {frame.time.time_ns / 1e9:.3f} s · scene revision {frame.revision}")
+        self.viewer.set_hud("runtime", f"t = {frame.time_ns / 1e9:.3f} s · scene revision {frame.revision}")
         if self._panels is not None:
             self._panels.render()
         self._last_render = now

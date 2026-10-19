@@ -34,7 +34,7 @@ from e2e.fixtures import MJCF, source_states  # noqa: E402
 from e2e.images import check_images  # noqa: E402
 from e2e.lifecycle import check_lifecycle  # noqa: E402
 from e2e.live_view import check_live_view  # noqa: E402
-from e2e.package_checks import check_package  # noqa: E402
+from e2e.package_checks import check_boundary, check_package  # noqa: E402
 from e2e.preview import check_preview  # noqa: E402
 from e2e.rendering import two_states  # noqa: E402
 from e2e.replay import check_replay  # noqa: E402
@@ -47,6 +47,7 @@ faulthandler.dump_traceback_later(300, exit=True)
 
 def main(out_dir: str, env_label: str) -> None:
     modules = check_package()
+    boundary = check_boundary(modules)
     model = mujoco.MjModel.from_xml_string(MJCF)
     sources = source_states(model)
     report: dict[str, object] = {}
@@ -76,6 +77,7 @@ def main(out_dir: str, env_label: str) -> None:
         viser=version("viser"),
         mj_manipulator_installed=importlib.util.find_spec("mj_manipulator") is not None,
         modules_imported=modules,
+        boundary=boundary,
         public_api=sorted(mj_viser.__all__),
     )
     with open(os.path.join(out_dir, "smoke_report.json"), "w") as f:

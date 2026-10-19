@@ -3,10 +3,11 @@
 
 """LiveView's contract with any render source, without a robot runtime.
 
-A stand-in source behaves like ssrobot's render handle: its own model and data copies,
+A stand-in render source has its own model and data copies,
 a scene identity, and capture() that copies the "simulation" state in. The checks:
 frames are rendered and coalesced to max_rate_hz; refresh never raises once the view is
-closed; a source's stale error stops the view, while any other error propagates; a scene
+closed; SourceStale from the source stops the view, while any other error (even one
+carrying another library's stale code) propagates; a scene
 change stops it; and bad arguments are refused before anything renders.
 """
 
@@ -26,18 +27,15 @@ from e2e.fixtures import expect_raises, free_port
 
 
 @dataclass(frozen=True)
-class _Stamp:
-    time_ns: int
-
-
-@dataclass(frozen=True)
 class _Frame:
-    time: _Stamp
+    time_ns: int
     revision: int
     world: str
 
 
 class _SourceError(Exception):
+    """An error with a code, like ssrobot's: not mj_viser's stale signal."""
+
     def __init__(self, code: str) -> None:
         super().__init__(code)
         self.code = code
@@ -59,7 +57,7 @@ class _Source:
         if self.fail_with is not None:
             raise self.fail_with
         mujoco.mj_copyData(self.data, self._sim_model, self.sim)
-        return _Frame(_Stamp(int(self.sim.time * 1e9)), 0, self.next_world or self.world)
+        return _Frame(int(self.sim.time * 1e9), 0, self.next_world or self.world)
 
 
 def check_live_view(model: mujoco.MjModel) -> dict[str, Any]:
@@ -85,7 +83,11 @@ def check_live_view(model: mujoco.MjModel) -> dict[str, Any]:
 
     source.fail_with = RuntimeError("a programming error in the source")
     out["other_errors_propagate"] = expect_raises(RuntimeError, lambda: view.refresh(force=True))
+    # An error that merely carries a code, as another library's would, is not a stale
+    # signal: only SourceStale is.
     source.fail_with = _SourceError("stale_render")
+    out["coded_error_propagates"] = expect_raises(_SourceError, lambda: view.refresh(force=True))
+    source.fail_with = mj_viser.SourceStale("stale_render")
     if view.refresh(force=True) is not None or view.stale != "stale_render":
         raise SystemExit(f"a stale source left the view {view.stale!r}")
     if view.refresh(force=True) is not None:
