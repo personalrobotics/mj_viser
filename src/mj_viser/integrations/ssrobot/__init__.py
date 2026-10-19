@@ -15,16 +15,23 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from mj_viser.live import SourceStale
+
+# What a missing ``ssrobot[mujoco]`` installation lacks. Any other missing module is a
+# broken installation, reported as it is.
+_REQUIRED = frozenset({"ssrobot", "mujoco", "sscbirrt"})
+
 try:
     # ssrobot is optional and not installed for type checking.
     import ssrobot  # type: ignore[import-not-found,unused-ignore]
     from ssrobot.mujoco import render_handle  # type: ignore[import-not-found,unused-ignore]
-except ModuleNotFoundError as e:  # pragma: no cover - exercised by the standalone lane
+except ModuleNotFoundError as e:
+    if (e.name or "").split(".")[0] not in _REQUIRED:
+        raise
     raise ModuleNotFoundError(
-        "mj_viser.integrations.ssrobot needs ssrobot, installed with its MuJoCo extra", name=e.name
+        f"mj_viser.integrations.ssrobot needs ssrobot, installed with its MuJoCo extra (missing {e.name!r})",
+        name=e.name,
     ) from e
-
-from mj_viser.live import SourceStale
 
 __all__ = ["render_source"]
 

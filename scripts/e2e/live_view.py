@@ -109,6 +109,21 @@ def check_live_view(model: mujoco.MjModel) -> dict[str, Any]:
         s.bind(("127.0.0.1", port))  # released
     out["failed_open_released_port"] = True
 
+    # A first frame that cannot be shown is a failed open too, not the model's default
+    # state behind a URL: a stale source, or a frame from another world.
+    stale_first = _Source(model)
+    stale_first.fail_with = mj_viser.SourceStale("stale_render")
+    other_first = _Source(model)
+    other_first.next_world = "scene-b"
+    for case, source in (("stale_at_open", stale_first), ("other_world_at_open", other_first)):
+        port = free_port()
+        view = mj_viser.LiveView(source, max_rate_hz=None, port=port)
+        out[case] = expect_raises(mj_viser.SourceStale, view.open)
+        if view.is_open:
+            raise SystemExit(f"{case}: open() returned with the viewer open")
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", port))  # released
+
     changed = _Source(model)
     view = mj_viser.LiveView(changed, max_rate_hz=None, port=0)
     view.open()

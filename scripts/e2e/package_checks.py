@@ -51,7 +51,48 @@ def check_boundary(modules: list[str]) -> dict[str, object]:
         integration = str(e)
     else:
         raise SystemExit("the ssrobot integration imported without ssrobot")
-    return {"ssrobot_installed": False, "core_modules": core, "pending": sorted(_PENDING), "integration": integration}
+    return {
+        "ssrobot_installed": False,
+        "core_modules": core,
+        "pending": sorted(_PENDING),
+        "integration": integration,
+        "broken_installations": _broken_installations(),
+    }
+
+
+def _broken_installations() -> dict[str, str]:
+    """A broken ssrobot is reported as it is; only a missing ssrobot (or MuJoCo extra) is
+    reported as missing. Each case imports the integration over a stand-in ssrobot."""
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    cases = {
+        # ssrobot is there, but its own dependency is not: report that dependency.
+        "missing_dependency_of_ssrobot": ("import mj_viser_test_absent_dependency\n", None),
+        # ssrobot is there without its MuJoCo extra's module: report ssrobot as needed.
+        "missing_mujoco_extra": ("", "ssrobot.mujoco"),
+    }
+    out = {}
+    for case, (init, expected_name) in cases.items():
+        with tempfile.TemporaryDirectory() as root:
+            (Path(root) / "ssrobot").mkdir()
+            (Path(root) / "ssrobot" / "__init__.py").write_text(init)
+            probe = (
+                f"import sys; sys.path.insert(0, {root!r})\n"
+                "try:\n    import mj_viser.integrations.ssrobot\n"
+                "except ModuleNotFoundError as e:\n    print(repr(e.name)); print(e)\n"
+            )
+            lines = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True).stdout.splitlines()
+        name = eval(lines[0]) if lines else None  # noqa: S307 - the repr printed just above
+        message = lines[1] if len(lines) > 1 else ""
+        if case == "missing_dependency_of_ssrobot":
+            if name != "mj_viser_test_absent_dependency" or "needs ssrobot" in message:
+                raise SystemExit(f"a broken ssrobot was reported as {name!r}: {message!r}")
+        elif name != expected_name or "needs ssrobot" not in message:
+            raise SystemExit(f"ssrobot without its MuJoCo extra was reported as {name!r}: {message!r}")
+        out[case] = message
+    return out
 
 
 def check_package() -> list[str]:
