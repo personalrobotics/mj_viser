@@ -126,6 +126,9 @@ def record_trace(records: Sequence[Any], world: Any, *, description: Any = None,
         "not_shown": dict(sorted(hidden.items())),
         "not_shown_but_changed_the_label": hidden_changes,
         "images": {name: images[name] for name in sorted(images)},
+        # What a trace cannot show: ssrobot records a contact channel's touching and
+        # summed normal force (shown above), not contact points, normals, or forces.
+        "contact_geometry": "not in the trace",
         "recording": {
             "duration_s": (end - t0) / 1e9,
             "sha256": hashlib.sha256(recording).hexdigest(),

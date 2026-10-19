@@ -100,8 +100,9 @@ def run(name: str, scene: Path, out: Path) -> tuple[Path, list[tuple[int, Any, A
     ):
         handle = render_handle(ctx)
         # Every channel the runtime provides, except depth (not shown).
-        quantity = {c.name: str(c.quantity) for c in description.channels}
-        request = ObservationRequest(channels=tuple(c for c in ctx.info.channels if quantity[c] != "depth_image"))
+        channels = (*description.channels, *ctx.info.scene_channels)
+        quantity = {c.name: str(c.quantity) for c in channels}
+        request = ObservationRequest(channels=tuple(c for c in ctx.info.channels if quantity.get(c) != "depth_image"))
 
         def snapshot() -> Any:
             taken = ctx.snapshot()

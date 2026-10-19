@@ -27,6 +27,7 @@ _LABELS = {
     "pose": ("x", "y", "z", "qw", "qx", "qy", "qz"),
     "wrench": ("fx", "fy", "fz", "tx", "ty", "tz"),
     "gripper_opening": ("opening",),
+    "contact": ("touching", "normal force (N)"),
 }
 _UNSHOWN = {"depth_image": "depth images are not shown", "unknown": "not described: quantity unknown"}
 _UNKNOWN = _UNSHOWN["unknown"]
@@ -50,16 +51,12 @@ class TraceChannels:
         """
         self.board = ChannelBoard(stale_after_ns=stale_after_ns)
         self._quantity: dict[str, str] = {}
+        self._joints: dict[str, tuple[str, ...]] = {}
+        self._specs: dict[str, Any] = {}
         if description is not None:
-            joints = {g.name: tuple(g.joints) for g in description.groups}
+            self._joints = {g.name: tuple(g.joints) for g in description.groups}
             for c in description.channels:
-                quantity = _enum(c.quantity)
-                labels = joints.get(str(c.source), ()) if quantity.startswith("joint_") else _LABELS.get(quantity, ())
-                kind: ChannelKind = (
-                    "unsupported" if quantity in _UNSHOWN else "image" if quantity == "rgb_image" else "values"
-                )
-                self.board.declare(c.name, kind=kind, quantity=quantity, labels=labels, note=_UNSHOWN.get(quantity, ""))
-                self._quantity[c.name] = quantity
+                self._declare(c)
         self._executions: dict[str, tuple[str, list[str]]] = {}
         self.board.set_status("scene", "scene revision 0")
 
@@ -76,6 +73,13 @@ class TraceChannels:
         kind, p, board = _enum(record.kind), record.payload, self.board
         board.advance(record.time_ns)
         if kind == "opened":
+            # The runtime's own channels (a scene's object poses and contacts), and which
+            # channels are privileged simulator truth.
+            for c in getattr(p, "scene_channels", ()):
+                self._declare(c)
+            for name in getattr(p, "privileged", ()):
+                if name in self._quantity:
+                    self._declare_privileged(name)
             confirmed = set(p.channels)
             for name in self._quantity:
                 if self._quantity[name] not in _UNSHOWN:
@@ -124,6 +128,21 @@ class TraceChannels:
             board.event(f"compiled a trajectory for {p.command.group}")
         elif kind == "closed":
             board.event("closed")
+
+    def _declare(self, spec: Any, privileged: bool = False) -> None:
+        quantity = _enum(spec.quantity)
+        source = str(spec.source)
+        labels = self._joints.get(source, ()) if quantity.startswith("joint_") else _LABELS.get(quantity, ())
+        kind: ChannelKind = "unsupported" if quantity in _UNSHOWN else "image" if quantity == "rgb_image" else "values"
+        self._quantity[spec.name] = quantity
+        self._specs[spec.name] = spec
+        shown = f"{quantity}, privileged" if privileged else quantity
+        self.board.declare(spec.name, kind=kind, quantity=shown, labels=labels, note=_UNSHOWN.get(quantity, ""))
+
+    def _declare_privileged(self, name: str) -> None:
+        spec = self._specs.get(name)
+        if spec is not None:
+            self._declare(spec, privileged=True)
 
     def _unknown(self, name: str) -> None:
         """List a channel the description does not name, until its readings say more."""
