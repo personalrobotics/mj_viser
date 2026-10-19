@@ -42,13 +42,14 @@ import msgspec  # noqa: E402
 import mujoco  # noqa: E402
 import numpy as np  # noqa: E402
 from ssrobot import JsonlTrace, RobotContext, dumps, load_installed_package  # noqa: E402
-from ssrobot.mujoco import MujocoRuntime, materialize_world_from, render_handle  # noqa: E402
+from ssrobot.mujoco import MujocoRuntime, materialize_world_from  # noqa: E402
 from ssrobot.planning import CBiRRT, SsikKinematics  # noqa: E402
 from websockets.sync.client import connect  # noqa: E402
 
 from e2e.channels import CAMERA, _frames  # noqa: E402
 from e2e.oracles import replay_recording  # noqa: E402
 from mj_viser import LiveView, PlanPreview  # noqa: E402
+from mj_viser.integrations.ssrobot import render_source  # noqa: E402
 from mj_viser.preview import record_preview  # noqa: E402
 
 faulthandler.dump_traceback_later(900, exit=True)
@@ -130,7 +131,7 @@ def run(name: str, scene: Path, out: Path, preview: bool) -> dict[str, Any]:
         for key, r in results.items():
             (out / f"{key}.result.json").write_text(dumps(r) + "\n")
         world = materialize_world_from(package, world=runtime.world(), scene=scene)
-        view = LiveView(render_handle(ctx), max_rate_hz=None, port=0, label=name)
+        view = LiveView(render_source(ctx), max_rate_hz=None, port=0, label=name)
         previews = PlanPreview(world, description, live=view)
         view.viewer.add_panel(previews)
         url = view.open().replace("http://", "ws://")
