@@ -25,6 +25,12 @@
 
 ### Added
 
+- `ContactOverlay` draws the contacts of the state a viewer shows: a point, a normal, and
+  a force arrow per contact, from MuJoCo's own contact list and `mj_contactForce`, named
+  by body, with per-browser visibility and arrow scale (#11). `contact_set` returns them
+  as data, and `StateRecorder(contacts=True)` records and logs them. The ssrobot
+  integration labels contact channels (touching, normal force in N), and a replay's
+  report says contact geometry is not in the trace.
 - `MotionPreview` previews named `JointMotion`s of any MuJoCo model as per-browser ghosts,
   with waypoints, timed motions at exact times, and an optional `Highlight`;
   `record_motion` records one (#51). ssrobot's `PlanPreview` is built on it.

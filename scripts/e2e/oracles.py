@@ -97,6 +97,32 @@ def replay_recording(recording: bytes) -> list[tuple[float, dict]]:  # type: ign
     return [(float(t), m) for t, m in payload["messages"]]
 
 
+def replay_arrays(recording: bytes) -> list[tuple[float, dict]]:  # type: ignore[type-arg]
+    """As :func:`replay_recording`, with each binary placeholder (``{"__binary_index":
+    i, "dtype": ...}``) replaced by its flat numpy array: buffers follow the msgpack
+    payload, each 8-byte aligned, with their lengths in ``binaryBufferLengths``."""
+    inner_size = int.from_bytes(recording[:8], "little")
+    inner = zstandard.ZstdDecompressor().decompress(recording[8:], max_output_size=inner_size)
+    n = int.from_bytes(inner[:8], "little")
+    payload = msgspec.msgpack.decode(inner[8 : 8 + n])
+    buffers, offset = [], 8 + n
+    for length in payload.get("binaryBufferLengths", ()):
+        offset += (8 - offset % 8) % 8
+        buffers.append(inner[offset : offset + length])
+        offset += length
+
+    def resolve(value: Any) -> Any:
+        if isinstance(value, dict):
+            if "__binary_index" in value and "dtype" in value:
+                return np.frombuffer(buffers[value["__binary_index"]], dtype=np.dtype(value["dtype"]))
+            return {k: resolve(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [resolve(v) for v in value]
+        return value
+
+    return [(float(t), resolve(m)) for t, m in payload["messages"]]
+
+
 def static_child_messages(messages: list[tuple[float, dict]], scene: dict) -> list[str]:  # type: ignore[type-arg]
     """Pose messages that touched a geom, a site, or a static body after the initial snapshot."""
     children = {g["path"] for g in scene["geoms"]} | {s["path"] for s in scene["sites"]}
