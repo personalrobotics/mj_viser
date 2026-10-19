@@ -45,10 +45,11 @@ from ssrobot import (  # noqa: E402
     RobotContext,
     load_installed_package,
 )
-from ssrobot.mujoco import MujocoRuntime, render_handle  # noqa: E402
+from ssrobot.mujoco import MujocoRuntime  # noqa: E402
 from websockets.sync.client import connect  # noqa: E402
 
 from mj_viser import ChannelModel, LiveView  # noqa: E402
+from mj_viser.integrations.ssrobot import render_source  # noqa: E402
 
 faulthandler.dump_traceback_later(600, exit=True)
 
@@ -141,7 +142,7 @@ def run(name: str, out: Path, viewed: bool) -> dict[str, Any]:
         request = ObservationRequest(channels=tuple(c for c in ctx.info.channels if quantity[c] != "depth_image"))
         view = None
         if viewed:
-            handle = render_handle(ctx)
+            handle = render_source(ctx)
             view = LiveView(
                 handle, expected_world=handle.world, channels=channels, max_rate_hz=None, port=0, label=name
             )
@@ -186,7 +187,7 @@ def run(name: str, out: Path, viewed: bool) -> dict[str, Any]:
                     recording = recorder.serialize()  # the first attachment's recording
                     recorder = None
                     view.close()
-                    view = LiveView(render_handle(ctx), channels=channels, max_rate_hz=None, port=0, label=name)
+                    view = LiveView(render_source(ctx), channels=channels, max_rate_hz=None, port=0, label=name)
                     view.open()
                     detached = True
         result.update(status=execution.status.state.value, ticks=ticks, end=_joint_positions(ctx, group.joints))
@@ -195,7 +196,7 @@ def run(name: str, out: Path, viewed: bool) -> dict[str, Any]:
             view.close()
             (out / f"{name}.viser").write_bytes(recording)
             result["recording_sha256"] = hashlib.sha256(recording).hexdigest()
-            stale_view = LiveView(render_handle(ctx), max_rate_hz=None, port=0)
+            stale_view = LiveView(render_source(ctx), max_rate_hz=None, port=0)
     if viewed:
         # The runtime reopens: the old handle no longer describes it, so the view goes stale.
         with RobotContext(description, runtime):  # the same runtime, reopened
@@ -218,7 +219,7 @@ def robot(name: str, out: Path) -> dict[str, Any]:
     package = load_installed_package(ROBOTS[name][0])
     with RobotContext(package.description, MujocoRuntime(package)) as ctx:
         try:
-            LiveView(render_handle(ctx), expected_world="another scene")
+            LiveView(render_source(ctx), expected_world="another scene")
         except ValueError as e:
             refused = str(e)
         else:
