@@ -82,6 +82,35 @@ def check_preview(model: mujoco.MjModel) -> dict[str, Any]:
         "wrong_width": expect_raises(ValueError, lambda: _motion(waypoints=((0.0,),))),
         "unknown_joint": expect_raises(ValueError, lambda: previews.add("x", _motion(joints=("hinge", "elbow")))),
     }
+    out["refused"].update(
+        {
+            "empty_path_alone": expect_raises(ValueError, lambda: _motion(waypoints=(), at=None, duration_s=None)),
+            "negative_duration": expect_raises(ValueError, lambda: _motion(duration_s=-1.0)),
+            "nan_duration": expect_raises(ValueError, lambda: _motion(duration_s=float("nan"))),
+            "nan_waypoint": expect_raises(ValueError, lambda: _motion(waypoints=((0.0, float("nan")),))),
+            "reserved_name": expect_raises(ValueError, lambda: previews.add("(none)", _motion())),
+            "highlight_named_path": expect_raises(ValueError, lambda: Highlight((0.0, 0.0), (), label="path")),
+            "timed_empty_configuration": expect_raises(
+                ValueError, lambda: previews.ghost_state(_motion(at=lambda t: ()), ())
+            ),
+            "timed_nan_configuration": expect_raises(
+                ValueError, lambda: previews.ghost_state(_motion(), (float("nan"), 0.0))
+            ),
+            "zero_period": expect_raises(ValueError, lambda: record_motion(model, _motion(), period_ns=0)),
+            "negative_waypoint_spacing": expect_raises(
+                ValueError, lambda: record_motion(model, _motion(), waypoint_s=-1)
+            ),
+            "descending_samples": expect_raises(
+                ValueError,
+                lambda: record_motion(model, _motion(samples=lambda p: [(0, (0, 0)), (2, (0, 0)), (1, (0, 0))])),
+            ),
+            "negative_sample": expect_raises(
+                ValueError, lambda: record_motion(model, _motion(samples=lambda p: [(-1, (0, 0))]))
+            ),
+        }
+    )
+    if _motion(waypoints=()).waypoints is not None:
+        raise SystemExit("an empty path was kept as a path")
     with MujocoViewer(mujoco.MjModel.from_xml_string("<mujoco/>"), port=0) as other:
         out["refused"]["viewer_of_another_model"] = expect_raises(ValueError, lambda: other.add_panel(previews))
     highlight = Highlight(configuration=(0.1, 0.05), lines=("collision of slider and <world>",))
@@ -171,4 +200,34 @@ def check_preview(model: mujoco.MjModel) -> dict[str, Any]:
     if abs(max(at for at, _ in positions) - 2.734) > 1e-6:
         raise SystemExit("the recording runs past its last sample")
     out["recorded"] = {"path": len(report["path"]), "trajectory": len(report["trajectory"])}
+
+    # A timed motion whose first sample is later than its start keeps that offset.
+    late = _motion(waypoints=None, samples=lambda p: [(100_000_000, (0.3, 0.1)), (200_000_000, (0.6, 0.2))])
+    recording, report = record_motion(model, late)
+    first = min(t for t, m in replay_recording(recording) if m.get("name") == f"/motion_preview/b{slider}")
+    if [round(s["recorded_s"], 6) for s in report["trajectory"]] != [0.1, 0.2] or round(first, 6) != 0.1:
+        raise SystemExit(f"a late first sample was recorded at {first} s: {report['trajectory']}")
+    out["first_sample_offset_kept"] = 0.1
+
+    # A carried body moves with its whole subtree.
+    held = mujoco.MjModel.from_xml_string(CARRIED)
+    bodies = MotionPreview(held).ghost_bodies(
+        JointMotion(joints=("hinge",), state=lambda q, d: None, waypoints=((0.0,),), carried=("held",))
+    )
+    names = sorted(held.body(b).name for b in bodies)
+    if names != ["arm", "held", "held_child"]:
+        raise SystemExit(f"carried ghost bodies {names}")
+    out["carried_subtree"] = names
     return out
+
+
+CARRIED = """
+<mujoco>
+  <worldbody>
+    <body name="arm"><joint name="hinge"/><geom size="0.05"/></body>
+    <body name="held" pos="1 0 0"><freejoint/><geom size="0.05"/>
+      <body name="held_child" pos="0 0 0.1"><geom size="0.02"/></body>
+    </body>
+  </worldbody>
+</mujoco>
+"""

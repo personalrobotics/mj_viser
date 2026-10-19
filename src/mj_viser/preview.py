@@ -34,7 +34,17 @@ if TYPE_CHECKING:
 
 GHOST_RGBA = np.array([0.3, 0.6, 1.0, 0.35])
 HIGHLIGHT_RGBA = np.array([1.0, 0.2, 0.2, 0.5])
-_PATH, _TIMED, _HIGHLIGHT = "path", "trajectory", "highlight"
+_PATH, _TIMED, _HIGHLIGHT, _NONE = "path", "trajectory", "highlight", "(none)"
+
+
+def _check_configuration(configuration: Sequence[float], width: int, what: str) -> tuple[float, ...]:
+    """``configuration`` as floats, if it has ``width`` finite values."""
+    values = tuple(float(v) for v in configuration)
+    if len(values) != width:
+        raise ValueError(f"{what}: {len(values)} values for {width} joints")
+    if not all(math.isfinite(v) for v in values):
+        raise ValueError(f"{what}: values must be finite, got {values}")
+    return values
 
 
 @dataclass(frozen=True)
@@ -45,7 +55,12 @@ class Highlight:
     lines: tuple[str, ...]
     """Caption lines, e.g. what failed there and where."""
     label: str = "highlighted state"
-    """The name browsers choose it by."""
+    """The name browsers choose it by; not ``"path"`` or ``"trajectory"``."""
+
+    def __post_init__(self) -> None:
+        if self.label in (_PATH, _TIMED):
+            raise ValueError(f"a highlight cannot be labelled {self.label!r}, a mode of its own")
+        _check_configuration(self.configuration, len(self.configuration), "the highlight")
 
 
 @dataclass(frozen=True)
@@ -74,14 +89,19 @@ class JointMotion:
     """A caption line per mode (``"path"``, ``"trajectory"``), saying what is shown."""
 
     def __post_init__(self) -> None:
+        if self.waypoints is not None and len(self.waypoints) == 0:
+            object.__setattr__(self, "waypoints", None)  # an empty path is no path
         if self.waypoints is None and self.at is None:
             raise ValueError("a motion needs waypoints or a timed motion to show")
         if (self.at is None) != (self.duration_s is None):
             raise ValueError("a timed motion needs both at and duration_s")
+        if self.duration_s is not None and not (math.isfinite(self.duration_s) and self.duration_s >= 0):
+            raise ValueError(f"duration_s must be finite and not negative, got {self.duration_s!r}")
         width = len(self.joints)
-        for q in [*(self.waypoints or ()), *((self.highlight.configuration,) if self.highlight else ())]:
-            if len(q) != width:
-                raise ValueError(f"a configuration of {len(q)} values for {width} joints")
+        for i, q in enumerate(self.waypoints or ()):
+            _check_configuration(q, width, f"waypoint {i}")
+        if self.highlight is not None:
+            _check_configuration(self.highlight.configuration, width, "the highlight")
 
 
 class MotionPreview(PanelBase):
@@ -110,8 +130,11 @@ class MotionPreview(PanelBase):
         """Offer a motion for preview, replacing one of the same name.
 
         Raises:
-            ValueError: If the model has no joint of that name.
+            ValueError: If the model has no joint or carried body of that name, or the
+                name is ``"(none)"``, which browsers use for no choice.
         """
+        if name == _NONE:
+            raise ValueError(f"{_NONE!r} is reserved for choosing no motion")
         missing = [j for j in motion.joints if mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_JOINT, j) < 0]
         missing += [b for b in motion.carried if mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, b) < 0]
         if missing:
@@ -152,7 +175,12 @@ class MotionPreview(PanelBase):
             return self._motions.get(name)
 
     def ghost_state(self, motion: JointMotion, configuration: Sequence[float]) -> mujoco.MjData:
-        """The state to show for ``configuration``, with kinematics computed."""
+        """The state to show for ``configuration``, with kinematics computed.
+
+        Raises:
+            ValueError: If ``configuration`` is not one finite value per joint.
+        """
+        configuration = _check_configuration(configuration, len(motion.joints), "a configuration")
         data = mujoco.MjData(self._model)
         motion.state(configuration, data)
         mujoco.mj_kinematics(self._model, data)
@@ -200,10 +228,10 @@ class MotionPreview(PanelBase):
             self._clients.pop(client_id, None)
 
 
-def _moving_bodies(model: mujoco.MjModel, joints: list[int], held: list[int]) -> list[int]:
-    """Bodies a plan moves: those at or below a body owning one of its joints, and the
-    held objects' bodies."""
-    owners = {int(model.jnt_bodyid[j]) for j in joints}
+def _moving_bodies(model: mujoco.MjModel, joints: list[int], carried: list[int]) -> list[int]:
+    """Bodies a motion moves: those at or below a body owning one of its joints, or at or
+    below a carried body."""
+    owners = {int(model.jnt_bodyid[j]) for j in joints} | set(carried)
     out = []
     for b in range(1, model.nbody):
         a = b
@@ -211,7 +239,7 @@ def _moving_bodies(model: mujoco.MjModel, joints: list[int], held: list[int]) ->
             a = int(model.body_parentid[a])
         if a in owners:
             out.append(b)
-    return sorted(set(out) | set(held))
+    return sorted(out)
 
 
 class _Ghost:
@@ -273,7 +301,7 @@ class _ClientPreview:
         self._rendering = False
         gui = client.gui
         with gui.add_folder(title, order=20):
-            self.choice = gui.add_dropdown("Motion", ("(none)",), initial_value="(none)")
+            self.choice = gui.add_dropdown("Motion", (_NONE,), initial_value=_NONE)
             self.mode = gui.add_dropdown("Show", (_PATH,), initial_value=_PATH)
             self.position = gui.add_slider("Sample", min=0, max=1, step=1, initial_value=0)
             self.caption = gui.add_html("")
@@ -285,7 +313,7 @@ class _ClientPreview:
     def offer(self, preview: MotionPreview) -> None:
         self._preview = preview
         with self._lock:
-            names = ("(none)", *preview.names())
+            names = (_NONE, *preview.names())
             if self.choice.options != names:
                 self._rendering = True
                 try:
@@ -308,7 +336,7 @@ class _ClientPreview:
 
     def _render(self, preview: MotionPreview) -> None:
         name = self.choice.value
-        motion = preview.motion(name) if name != "(none)" else None
+        motion = preview.motion(name) if name != _NONE else None
         if motion is None:
             self._ghost.hide()
             self.caption.content = ""
@@ -373,16 +401,39 @@ def record_motion(
     label: str | None = None,
 ) -> tuple[bytes, dict[str, Any]]:
     """Record a motion as a Viser recording: the state at its first configuration, then
-    the ghost at each waypoint (``waypoint_s`` apart), then, ``waypoint_s`` later, at
-    each of its own timed samples (``motion.samples(period_ns)``) at its own time.
+    the ghost at each waypoint (``waypoint_s`` apart), then, ``waypoint_s`` later, the
+    timed motion from its start: each of its own samples (``motion.samples(period_ns)``)
+    at its own time from the motion's start, nothing after the last.
 
     Returns the recording and a report of every sample shown.
+
+    Raises:
+        ValueError: Before anything is recorded, if ``period_ns`` is not positive,
+            ``waypoint_s`` is negative or not finite, the samples' times are negative or
+            not strictly increasing, or a configuration is not one finite value per joint.
     """
     from mj_viser.recording import TEXT
     from mj_viser.viewer import MujocoViewer
 
+    if period_ns <= 0:
+        raise ValueError(f"period_ns must be positive, got {period_ns}")
+    if not (math.isfinite(waypoint_s) and waypoint_s >= 0):
+        raise ValueError(f"waypoint_s must be finite and not negative, got {waypoint_s}")
+    width = len(motion.joints)
+    timeline: list[tuple[int, tuple[float, ...]]] = []
+    if motion.samples is not None:
+        for t, q in motion.samples(period_ns):
+            if t < 0 or (timeline and t <= timeline[-1][0]):
+                raise ValueError(f"sample times must start at or after 0 and increase: {t} ns")
+            timeline.append((int(t), _check_configuration(q, width, f"the sample at {t} ns")))
     preview = MotionPreview(model)
-    first = motion.waypoints[0] if motion.waypoints else motion.at(0.0)  # type: ignore[misc]
+    if motion.waypoints:
+        first = motion.waypoints[0]
+    elif timeline:
+        first = timeline[0][1]
+    else:
+        assert motion.at is not None
+        first = _check_configuration(motion.at(0.0), width, "the motion's start")
     viewer = MujocoViewer(model, port=0, label=label, show_visibility=False)
     viewer.open()
     try:
@@ -408,12 +459,12 @@ def record_motion(
                 ghost.show(preview.ghost_state(motion, waypoint), bodies, GHOST_RGBA)
                 text.text = f"path waypoint {i + 1} of {len(motion.waypoints)}"
                 report["path"].append({"index": i, "recorded_s": clock})
-        if motion.samples is not None:
+        if timeline:
             if motion.waypoints is not None:
                 wait(waypoint_s)
-            previous = None
-            for t, positions in motion.samples(period_ns):
-                if previous is not None:
+            previous = 0  # the timed motion starts here; a first sample later than 0 waits
+            for t, positions in timeline:
+                if t > previous:
                     wait((t - previous) / 1e9)  # the samples' own spacing; none after the last
                 ghost.show(preview.ghost_state(motion, positions), bodies, GHOST_RGBA)
                 text.text = f"trajectory at t = {t / 1e9:.3f} s"
