@@ -5,7 +5,7 @@
 
 Usage: python -I scripts/e2e/ssrobot_adapters.py OUT_DIR
 
-Runs the trace replay, trace channel, and trace image checks of the integration lane
+Runs the trace replay, trace channel, trace image, and plan preview checks of the integration lane
 and writes ssrobot_adapters.json, trace_images.viser, and trace_images_conversion.json.
 """
 
@@ -23,6 +23,7 @@ import mujoco  # noqa: E402
 from e2e.fixtures import MJCF  # noqa: E402
 from e2e.trace_channels import check_trace_channels  # noqa: E402
 from e2e.trace_images import check_trace_images  # noqa: E402
+from e2e.trace_preview import check_trace_preview  # noqa: E402
 from e2e.trace_replay import check_replay  # noqa: E402
 
 
@@ -34,6 +35,7 @@ def main(out_dir: str) -> None:
         "trace_replay": check_replay(model),
         "trace_channels": check_trace_channels(),
         "trace_images": check_trace_images(model, str(out)),
+        "trace_preview": check_trace_preview(model),
         "versions": {p: version(p) for p in ("mj-viser", "ssrobot", "mujoco", "viser")},
     }
     (out / "ssrobot_adapters.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")

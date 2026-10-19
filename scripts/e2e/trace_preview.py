@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Siddhartha Srinivasa
 
-"""Plan previews' contract with any planning result, without ssrobot.
+"""The ssrobot integration's plan previews, on stand-in results (needs ssrobot installed).
 
 Stand-in results over the fixture model's hinge and slide: one with a three-waypoint
 path and a one-second trajectory, one with an invalid validation's first invalid state.
@@ -28,8 +28,8 @@ from websockets.sync.client import connect
 from e2e.channels import CAMERA, _frames
 from e2e.fixtures import expect_raises, kinematics
 from e2e.oracles import replay_recording
-from mj_viser import MujocoViewer, PlanPreview
-from mj_viser.preview import record_preview
+from mj_viser import MujocoViewer
+from mj_viser.integrations.ssrobot import PlanPreview, record_preview
 
 WAYPOINTS = ((0.0, 0.0), (0.3, 0.1), (0.6, 0.2))
 
@@ -81,7 +81,7 @@ def _ghost(frames: list[dict[str, Any]]) -> dict[str, np.ndarray]:
     out = {}
     for m in frames:
         name = m.get("name", "")
-        if m["type"] == "SetPositionMessage" and name.startswith("/plan_preview/b") and name.count("/") == 2:
+        if m["type"] == "SetPositionMessage" and name.startswith("/motion_preview/b") and name.count("/") == 2:
             out[name] = np.asarray(m["position"], float)
     return out
 
@@ -91,16 +91,19 @@ def _choose(ws: Any, frames: list[dict[str, Any]], label: str, value: Any) -> No
     ws.send(msgspec.msgpack.encode({"type": "GuiUpdateMessage", "uuid": widget["uuid"], "updates": {"value": value}}))
 
 
-def check_preview(model: mujoco.MjModel) -> dict[str, Any]:
+def check_trace_preview(model: mujoco.MjModel) -> dict[str, Any]:
     out: dict[str, Any] = {}
     world = NS(model=model, world="w", description="d", mapping=_Mapping())
     previews = PlanPreview(world, DESCRIPTION)
     out["refused"] = {
-        "other_snapshot": expect_raises(ValueError, lambda: previews.add("x", _result("s2"), _snapshot())),
-        "other_world": expect_raises(ValueError, lambda: previews.add("x", _result(), _snapshot(world="v"))),
-        "nothing_to_show": expect_raises(ValueError, lambda: previews.add("x", _result(path=False), _snapshot())),
+        "other_snapshot": expect_raises(ValueError, lambda: previews.add_result("x", _result("s2"), _snapshot())),
+        "other_world": expect_raises(ValueError, lambda: previews.add_result("x", _result(), _snapshot(world="v"))),
+        "nothing_to_show": expect_raises(
+            ValueError, lambda: previews.add_result("x", _result(path=False), _snapshot())
+        ),
         "valid_validation": expect_raises(
-            ValueError, lambda: previews.add("x", _result(), _snapshot(), validation=NS(valid=True, witness=None))
+            ValueError,
+            lambda: previews.add_result("x", _result(), _snapshot(), validation=NS(valid=True, witness=None)),
         ),
     }
     witness = NS(
@@ -113,10 +116,12 @@ def check_preview(model: mujoco.MjModel) -> dict[str, Any]:
         detail="",
     )
     out["refused"]["validation_of_another_motion"] = expect_raises(
-        ValueError, lambda: previews.add("x", _result(), _snapshot(), validation=_invalid(witness, motion="other"))
+        ValueError,
+        lambda: previews.add_result("x", _result(), _snapshot(), validation=_invalid(witness, motion="other")),
     )
     out["refused"]["validation_of_another_group"] = expect_raises(
-        ValueError, lambda: previews.add("x", _result(), _snapshot(), validation=_invalid(witness, group="other"))
+        ValueError,
+        lambda: previews.add_result("x", _result(), _snapshot(), validation=_invalid(witness, group="other")),
     )
     out["refused"]["live_view_of_another_world"] = expect_raises(
         ValueError,
@@ -124,10 +129,10 @@ def check_preview(model: mujoco.MjModel) -> dict[str, Any]:
     )
     with MujocoViewer(mujoco.MjModel.from_xml_string("<mujoco/>"), port=0) as other:
         out["refused"]["viewer_of_another_model"] = expect_raises(ValueError, lambda: other.add_panel(previews))
-    previews.add("plan", _result(), _snapshot())
-    previews.add("bad", _result(), _snapshot(), validation=_invalid(witness))
+    previews.add_result("plan", _result(), _snapshot())
+    previews.add_result("bad", _result(), _snapshot(), validation=_invalid(witness))
 
-    moving = {f"/plan_preview/b{model.body(b).id}" for b in ("arm", "slider", "cap")}
+    moving = {f"/motion_preview/b{model.body(b).id}" for b in ("arm", "slider", "cap")}
     with MujocoViewer(model, port=0) as viewer:
         viewer.add_panel(previews)
         url = viewer.url.replace("http://", "ws://")
@@ -136,7 +141,7 @@ def check_preview(model: mujoco.MjModel) -> dict[str, Any]:
             for ws in clients:
                 ws.send(msgspec.msgpack.encode(CAMERA))
             seen = [_frames(ws, 1.0) for ws in clients]
-            _choose(clients[0], seen[0], "Result", "plan")
+            _choose(clients[0], seen[0], "Motion", "plan")
             time.sleep(0.3)
             seen[0] += _frames(clients[0], 0.5)
             _choose(clients[0], seen[0], "Sample", 2)
@@ -159,12 +164,12 @@ def check_preview(model: mujoco.MjModel) -> dict[str, Any]:
             _choose(clients[0], seen[0] + first, "Sample", 10**6)
             first += _frames(clients[0], 1.0)
             end = kinematics(model, [0.6, 0.2]).xpos[model.body("slider").id]
-            got = _ghost(first)[f"/plan_preview/b{model.body('slider').id}"]
+            got = _ghost(first)[f"/motion_preview/b{model.body('slider').id}"]
             if not np.allclose(got, end, atol=1e-9):
                 raise SystemExit(f"the trajectory's last tick shows {got}, its end is {end}")
             out["trajectory_end"] = "exact"
 
-            _choose(clients[0], seen[0] + first, "Result", "bad")
+            _choose(clients[0], seen[0] + first, "Motion", "bad")
             time.sleep(0.3)
             more = _frames(clients[0], 0.5)
             _choose(clients[0], seen[0] + first + more, "Show", "first invalid state")
@@ -178,7 +183,7 @@ def check_preview(model: mujoco.MjModel) -> dict[str, Any]:
             if not caption or "segment 0 at 0.300" not in caption[-1] or "&lt;world&gt; -1.23 mm" not in caption[-1]:
                 raise SystemExit(f"witness caption {caption[-1:]}")
             at = kinematics(model, [0.1, 0.05])
-            slider = f"/plan_preview/b{model.body('slider').id}"
+            slider = f"/motion_preview/b{model.body('slider').id}"
             if not np.allclose(_ghost(shown)[slider], at.xpos[model.body("slider").id], atol=1e-9):
                 raise SystemExit("the first invalid state's ghost is not at its configuration")
             out["witness"] = caption[-1]
@@ -190,9 +195,9 @@ def check_preview(model: mujoco.MjModel) -> dict[str, Any]:
     with MujocoViewer(model, port=0) as viewer:
         live = NS(frame=NS(revision=0), world="w", viewer=viewer)  # a LiveView's shape
         staling = PlanPreview(world, DESCRIPTION, live=live)  # type: ignore[arg-type]
-        staling.add("plan", _result(), _snapshot())
+        staling.add_result("plan", _result(), _snapshot())
         out["refused"]["other_revision"] = expect_raises(
-            ValueError, lambda: staling.add("old", _result(revision=1), _snapshot())
+            ValueError, lambda: staling.add_result("old", _result(revision=1), _snapshot())
         )
         viewer.add_panel(staling)
         live.frame = NS(revision=1)
@@ -211,7 +216,7 @@ def check_preview(model: mujoco.MjModel) -> dict[str, Any]:
     positions = [
         (round(t, 6), np.asarray(m["position"]))
         for t, m in replay_recording(recording)
-        if m["type"] == "SetPositionMessage" and m.get("name") == f"/plan_preview/b{slider}"
+        if m["type"] == "SetPositionMessage" and m.get("name") == f"/motion_preview/b{slider}"
     ]
     expected_at = {0.5: [0.3, 0.1], 1.0: [0.6, 0.2]}  # waypoints 2 and 3
     expected_at.update({round(1.5 + t / 1e9, 6): list(_Trajectory().evaluate(t / 1e9)[0]) for t in samples[1:]})

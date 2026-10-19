@@ -48,9 +48,9 @@ from websockets.sync.client import connect  # noqa: E402
 
 from e2e.channels import CAMERA, _frames  # noqa: E402
 from e2e.oracles import replay_recording  # noqa: E402
-from mj_viser import LiveView, PlanPreview  # noqa: E402
-from mj_viser.integrations.ssrobot import render_source  # noqa: E402
-from mj_viser.preview import record_preview  # noqa: E402
+from mj_viser import LiveView  # noqa: E402
+from mj_viser.integrations.ssrobot import PlanPreview, record_preview, render_source  # noqa: E402
+from mj_viser.recording import TEXT  # noqa: E402
 
 faulthandler.dump_traceback_later(900, exit=True)
 
@@ -104,7 +104,7 @@ def _ghost_poses(frames: list[dict[str, Any]]) -> dict[str, tuple[np.ndarray, np
     poses: dict[str, dict[str, Any]] = {}
     for m in frames:
         name = m.get("name", "")
-        if not name.startswith("/plan_preview/b") or name.count("/") != 2:
+        if not name.startswith("/motion_preview/b") or name.count("/") != 2:
             continue
         if m["type"] == "SetPositionMessage":
             poses.setdefault(name, {})["p"] = np.asarray(m["position"], float)
@@ -136,7 +136,7 @@ def run(name: str, scene: Path, out: Path, preview: bool) -> dict[str, Any]:
         view.viewer.add_panel(previews)
         url = view.open().replace("http://", "ws://")
         for key, r in results.items():
-            previews.add(key, r, snapshot)
+            previews.add_result(key, r, snapshot)
         frame_name = description.manipulator(manipulator).tool_frame
         body = world.model.body(frame_name).id  # the tool frame is a body in both packages
         clients = [connect(url, subprotocols=[f"viser-v{version('viser')}"], max_size=None) for _ in range(2)]
@@ -146,7 +146,7 @@ def run(name: str, scene: Path, out: Path, preview: bool) -> dict[str, Any]:
             seen = [_frames(ws, 1.5) for ws in clients]
             choices = {0: ("joint", "path"), 1: ("offset", "trajectory")}
             for i, (key, show) in choices.items():
-                _choose(clients[i], seen[i], "Result", key)
+                _choose(clients[i], seen[i], "Motion", key)
                 time.sleep(0.3)
                 seen[i] += _frames(clients[i], 0.5)
                 _choose(clients[i], seen[i], "Show", show)
@@ -166,13 +166,13 @@ def run(name: str, scene: Path, out: Path, preview: bool) -> dict[str, Any]:
             checked = {}
             for i, q in samples.items():
                 expected = scene_for.forward_kinematics(tuple(q), frame_name)
-                position, quat = ghosts[i][f"/plan_preview/b{body}"]
+                position, quat = ghosts[i][f"/motion_preview/b{body}"]
                 gap = float(np.abs(position - np.asarray(expected.position)).max())
                 turn = float(min(np.abs(quat - expected.quat_wxyz).max(), np.abs(quat + expected.quat_wxyz).max()))
                 if gap > 1e-6 or turn > 1e-6:
                     raise SystemExit(f"{name}: browser {i}'s ghost tool frame is off by {gap} m, {turn}")
                 checked[choices[i][0]] = {"position_m": gap, "quaternion": turn}
-            tool = f"/plan_preview/b{body}"
+            tool = f"/motion_preview/b{body}"
             if np.allclose(ghosts[0][tool][0], ghosts[1][tool][0]):
                 raise SystemExit(f"{name}: both browsers show the same ghost")
             result["ghost_tool_frame_error"] = checked
@@ -182,7 +182,7 @@ def run(name: str, scene: Path, out: Path, preview: bool) -> dict[str, Any]:
             view.refresh(force=True)
             result["stale_after_scene_change"] = {k: previews.stale(k) for k in results}
             try:
-                previews.add("joint again", results["joint"], snapshot)
+                previews.add_result("joint again", results["joint"], snapshot)
             except ValueError as e:
                 result["stale_result_refused"] = str(e)
             else:
@@ -191,10 +191,10 @@ def run(name: str, scene: Path, out: Path, preview: bool) -> dict[str, Any]:
             # Held: the cylinder, declared held, rides the hand in the ghost exactly as the
             # planning scene moves it.
             held_snapshot, held = _held_plan(ctx, package, manipulator)
-            previews.add("held", held, held_snapshot)
+            previews.add_result("held", held, held_snapshot)
             time.sleep(0.3)
             seen[0] += _frames(clients[0], 0.5)
-            _choose(clients[0], seen[0], "Result", "held")
+            _choose(clients[0], seen[0], "Motion", "held")
             time.sleep(0.3)
             seen[0] += _frames(clients[0], 0.5)
             _choose(clients[0], seen[0], "Show", "trajectory")
@@ -209,7 +209,7 @@ def run(name: str, scene: Path, out: Path, preview: bool) -> dict[str, Any]:
             hand = _matrix(planning.forward_kinematics(held.trajectory.goal, effector))
             expected = hand @ _matrix(attachment.transform)
             cylinder = world.model.body("cylinder").id
-            position, quat = ghost[f"/plan_preview/b{cylinder}"]
+            position, quat = ghost[f"/motion_preview/b{cylinder}"]
             gap = float(np.abs(position - expected[:3, 3]).max())
             rotation = np.zeros(9)
             mujoco.mju_quat2Mat(rotation, quat)
@@ -226,7 +226,7 @@ def run(name: str, scene: Path, out: Path, preview: bool) -> dict[str, Any]:
         label_times = [
             round(t, 6)
             for t, m in replay_recording(recording)
-            if m.get("name") == "/plan_preview/label" and "trajectory" in str((m.get("updates") or {}).get("text", ""))
+            if m.get("name") == TEXT and "trajectory" in str((m.get("updates") or {}).get("text", ""))
         ]
         expected_times = [round(s["recorded_s"], 6) for s in report["trajectory"]]
         start = expected_times[0]
