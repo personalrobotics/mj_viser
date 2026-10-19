@@ -61,13 +61,13 @@ viewer.close()                     # releases the port; open() again to reuse th
 
 ### Follow a running simulation (ssrobot)
 
-`LiveView` follows a simulation through a read-only render source: an object that owns its own copy of the model and state and refreshes it only when asked. ssrobot's `render_handle(ctx)` is one; mj_viser does not import ssrobot, and any object with `model`, `data`, `world`, and `capture()` works.
+`LiveView` follows a simulation through a read-only render source (`mj_viser.RenderSource`): an object with its own `model` and `data`, a `world` identity, and `capture()`, which copies the simulation's state into `data` and returns a frame (`time_ns`, `revision`, `world`), or raises `mj_viser.SourceStale` once it can no longer describe the simulation. Any simulator can provide one. For ssrobot, `mj_viser.integrations.ssrobot.render_source(ctx)` adapts its render handle; that module is the only part of mj_viser that imports ssrobot.
 
 ```python
-from ssrobot.mujoco import render_handle
 from mj_viser import LiveView
+from mj_viser.integrations.ssrobot import render_source
 
-view = LiveView(render_handle(ctx), max_rate_hz=30)
+view = LiveView(render_source(ctx), max_rate_hz=30)
 print(view.open())
 while running:
     ctx.step()          # ssrobot owns time and stepping
@@ -78,7 +78,7 @@ view.close()            # the simulation keeps running
 - Nothing the viewer does reaches the simulation: the handle holds copies, and traces are byte-identical with and without a view attached.
 - `refresh()` never raises because the view was closed or a browser went away, so it cannot stop your loop.
 - The HUD shows the simulation's time and scene revision. `expected_world=` refuses a source for any other scene.
-- Attach and detach freely: make a new view with a new `render_handle(ctx)`. After the simulation reopens, an old view goes `stale` and renders nothing more.
+- Attach and detach freely: make a new view with a new `render_source(ctx)`. After the simulation reopens, an old view goes `stale` and renders nothing more.
 
 To see what the run says by name, pass a `ChannelModel` to the context as a trace sink and to the view:
 
@@ -87,7 +87,7 @@ from mj_viser import ChannelModel, LiveView
 
 channels = ChannelModel(description)  # channel quantities and joint names
 with RobotContext(description, runtime, sinks=[trace, channels]) as ctx:
-    view = LiveView(render_handle(ctx), channels=channels)
+    view = LiveView(render_source(ctx), channels=channels)
 ```
 
 Each browser gets its own panels:

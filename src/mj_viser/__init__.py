@@ -4,7 +4,7 @@
 """mj-viser: Web-based MuJoCo viewer using Viser."""
 
 from mj_viser.channels import ChannelModel
-from mj_viser.live import LiveView
+from mj_viser.live import LiveView, RenderFrame, RenderSource, SourceStale
 from mj_viser.panels import PanelBase
 from mj_viser.preview import PlanPreview
 from mj_viser.sensor_panel import SensorChannel, SensorPanel
@@ -16,6 +16,9 @@ __all__ = [
     "MujocoViewer",
     "PanelBase",
     "PlanPreview",
+    "RenderFrame",
+    "RenderSource",
     "SensorChannel",
     "SensorPanel",
+    "SourceStale",
 ]

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Changed
+
+- The live render source is an mj_viser protocol (#51). `RenderFrame` has `time_ns`
+  (it had `time.time_ns`), and a source signals that it can no longer describe its
+  simulation by raising `mj_viser.SourceStale(reason)`. `LiveView` no longer
+  interprets other libraries' error codes, so any other error propagates.
+- ssrobot adapters live in the optional `mj_viser.integrations.ssrobot`, the only part
+  of mj_viser that imports ssrobot. Migration: `LiveView(render_handle(ctx))` becomes
+  `LiveView(render_source(ctx))`, with `render_source` from that module.
+
 ### Added
 
 - `PlanPreview` shows ssrobot planning results as a ghost of the moving robot in the
