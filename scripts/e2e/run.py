@@ -76,7 +76,7 @@ def main(out_dir: str, env_label: str) -> None:
         environment=env_label,
         installed={d.metadata["Name"].lower(): d.version for d in importlib.metadata.distributions()},
         python=sys.version.split()[0],
-        mj_viser=version("mj-viser"),
+        mj_viser=version("ssmjviser"),
         mujoco=version("mujoco"),
         viser=version("viser"),
         mj_manipulator_installed=importlib.util.find_spec("mj_manipulator") is not None,

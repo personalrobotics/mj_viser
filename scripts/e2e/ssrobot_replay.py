@@ -361,7 +361,7 @@ def main(scenes: str, out_dir: str) -> None:
         robots[name] = check(name, bundle, truth, live, where)
     report = {
         "robots": robots,
-        "versions": {p: version(p) for p in ("mj-viser", "ssrobot", "mujoco", "viser")},
+        "versions": {p: version(p) for p in ("ssmjviser", "ssrobot", "mujoco", "viser")},
     }
     (out / "ssrobot_replay.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
 

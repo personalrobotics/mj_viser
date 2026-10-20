@@ -1,5 +1,5 @@
 [project]
-name = "mj-viser"
+name = "ssmjviser"
 version = "0.4.0"
 description = "See MuJoCo simulations in your browser: live, as plans, or replayed"
 license = "MIT"

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Siddhartha Srinivasa
 
-"""mj-viser: Web-based MuJoCo viewer using Viser."""
+"""mj_viser: MuJoCo in the browser, on Viser."""
 
 from mj_viser.channels import ChannelBoard, ChannelState
 from mj_viser.contacts import ContactOverlay, contact_set

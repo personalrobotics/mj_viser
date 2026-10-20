@@ -250,7 +250,7 @@ def main(out_dir: str) -> None:
     out.mkdir(parents=True, exist_ok=True)
     report = {
         "robots": {name: robot(name, out) for name in ROBOTS},
-        "versions": {p: version(p) for p in ("mj-viser", "ssrobot", "mujoco", "viser")},
+        "versions": {p: version(p) for p in ("ssmjviser", "ssrobot", "mujoco", "viser")},
     }
     (out / "ssrobot_live.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
 

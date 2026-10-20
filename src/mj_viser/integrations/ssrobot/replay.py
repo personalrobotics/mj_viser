@@ -139,7 +139,7 @@ def record_trace(records: Sequence[Any], world: Any, *, description: Any = None,
             "label": TEXT,
             "images": IMAGES,
         },
-        "mj_viser": version("mj-viser"),
+        "mj_viser": version("ssmjviser"),
     }
     return Replay(recording=recording, report=report)
 

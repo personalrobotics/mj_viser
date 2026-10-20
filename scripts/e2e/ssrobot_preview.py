@@ -265,7 +265,7 @@ def main(scenes: str, out_dir: str) -> None:
         robots[name] = {**previewed, "traces_identical_with_and_without_preview": identical}
     report = {
         "robots": robots,
-        "versions": {p: version(p) for p in ("mj-viser", "ssrobot", "mujoco", "viser")},
+        "versions": {p: version(p) for p in ("ssmjviser", "ssrobot", "mujoco", "viser")},
     }
     (out / "ssrobot_preview.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
 

@@ -179,7 +179,7 @@ def main(references: str, out_dir: str) -> None:
         raise SystemExit(f"Geodude does not hold the cylinder off the worktable: {robots['geodude']['drawn']}")
     if not robots["ada"]["drawn"]["cylinder/ada_table"]["contacts"]:
         raise SystemExit("ADA's cylinder does not rest on its table")
-    report = {"robots": robots, "versions": {p: version(p) for p in ("mj-viser", "ssrobot", "mujoco", "viser")}}
+    report = {"robots": robots, "versions": {p: version(p) for p in ("ssmjviser", "ssrobot", "mujoco", "viser")}}
     (root / "ssrobot_contacts.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
 
 

@@ -48,7 +48,7 @@ def _slug(heading: str) -> str:
 
 
 def _description(dist: Path) -> tuple[str, str]:
-    wheel = next(dist.glob("mj_viser-*.whl"))
+    wheel = next(dist.glob("ssmjviser-*.whl"))
     with zipfile.ZipFile(wheel) as z:
         name = next(n for n in z.namelist() if n.endswith(".dist-info/METADATA"))
         metadata = Parser().parsestr(z.read(name).decode())
