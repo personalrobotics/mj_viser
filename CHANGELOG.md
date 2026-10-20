@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- `LiveView(render_source(ctx))` type-checks under `mypy --strict` (#62).
+  `RenderFrame`'s members are read-only properties, so frozen frames, such as the
+  ssrobot integration's, satisfy it; frames with plain attributes still do. The strict
+  downstream type check now includes the README's ssrobot recipe.
+
 ### Added
 
 - The concept DOI, 10.5281/zenodo.23507202, in `CITATION.cff` and the README, with its
