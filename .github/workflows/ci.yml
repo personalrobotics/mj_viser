@@ -59,6 +59,36 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  # A downstream project's strict type check against the uploaded wheel (py.typed).
+  typed-consumer:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+
+      - name: Verify artifact hashes
+        run: (cd dist && sha256sum -c SHA256SUMS)
+
+      - name: Strict type check of a downstream consumer
+        run: scripts/typing/check.sh "$(ls dist/mj_viser-*.whl)" typed-consumer.json
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: typed-consumer
+          path: typed-consumer.json
+          if-no-files-found: error
+
   # Tests run against the uploaded wheel, not a rebuild. One job per (Python, environment)
   # so they run in parallel. Pull requests check the locked versions on every Python plus
   # the declared minimums and the newest releases; main, nightly, and manual runs also check
@@ -318,7 +348,7 @@ jobs:
   # Legacy integration hook. It needs a token that is not configured, so it is skipped
   # rather than failing main until robot-code owns a replacement.
   notify-robot-code:
-    needs: [test, ssrobot-live, ssrobot-replay, ssrobot-preview]
+    needs: [test, typed-consumer, ssrobot-live, ssrobot-replay, ssrobot-preview]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:

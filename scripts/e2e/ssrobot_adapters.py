@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import mujoco  # noqa: E402
 
 from e2e.fixtures import MJCF  # noqa: E402
+from e2e.package_checks import check_public_api  # noqa: E402
 from e2e.trace_channels import check_trace_channels  # noqa: E402
 from e2e.trace_images import check_trace_images  # noqa: E402
 from e2e.trace_preview import check_trace_preview  # noqa: E402
@@ -32,6 +33,7 @@ def main(out_dir: str) -> None:
     out.mkdir(parents=True, exist_ok=True)
     model = mujoco.MjModel.from_xml_string(MJCF)
     report = {
+        "public_api": check_public_api("The ssrobot integration", "mj_viser.integrations.ssrobot"),
         "trace_replay": check_replay(model),
         "trace_channels": check_trace_channels(),
         "trace_images": check_trace_images(model, str(out)),

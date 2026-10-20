@@ -11,12 +11,37 @@ import importlib.util
 import inspect
 import io
 import pkgutil
+import re
 import sys
 import tokenize
+from pathlib import Path
 
 import mj_viser
 
 INTEGRATIONS = "mj_viser.integrations."
+API_DOC = Path(__file__).resolve().parents[2] / "docs" / "api.md"
+
+
+def documented_api(section: str) -> list[str]:
+    """The dotted names docs/api.md lists as public under ``section``."""
+    text = API_DOC.read_text()
+    body = text.split(f"### {section}\n", 1)[1].split("\n### ", 1)[0].split("\n## ", 1)[0]
+    return re.findall(r"^- `(mj_viser\.[\w.]+)`$", body, re.M)
+
+
+def check_public_api(section: str, package: str) -> list[str]:
+    """Every name docs/api.md lists under ``section`` exists, and ``package``'s ``__all__``
+    is exactly the names it lists at that level: the documented API is the exported one."""
+    names = documented_api(section)
+    for dotted in names:
+        module, _, attr = dotted.rpartition(".")
+        if not hasattr(importlib.import_module(module), attr):
+            raise SystemExit(f"docs/api.md lists {dotted}, which does not exist")
+    top = sorted(n.rpartition(".")[2] for n in names if n.rpartition(".")[0] == package)
+    exported = sorted(importlib.import_module(package).__all__)
+    if top != exported:
+        raise SystemExit(f"{package}.__all__ is {exported}, but docs/api.md lists {top}")
+    return names
 
 
 def check_boundary(modules: list[str]) -> dict[str, object]:

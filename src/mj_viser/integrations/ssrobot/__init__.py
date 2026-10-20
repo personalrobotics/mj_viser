@@ -30,11 +30,7 @@ _REQUIRED = frozenset({"ssrobot", "mujoco", "sscbirrt"})
 try:
     # ssrobot is optional and not installed for type checking.
     import ssrobot  # type: ignore[import-not-found,unused-ignore]
-    from ssrobot import open_bundle  # type: ignore[import-not-found,unused-ignore]
-    from ssrobot.mujoco import (  # type: ignore[import-not-found,unused-ignore]
-        materialize_world,
-        render_handle,
-    )
+    from ssrobot.mujoco import render_handle  # type: ignore[import-not-found,unused-ignore]
 except ModuleNotFoundError as e:
     if (e.name or "").split(".")[0] not in _REQUIRED:
         raise
@@ -46,7 +42,7 @@ except ModuleNotFoundError as e:
 from mj_viser.integrations.ssrobot.channels import TraceChannels  # noqa: E402
 from mj_viser.integrations.ssrobot.preview import PlanPreview, record_preview  # noqa: E402
 
-__all__ = ["PlanPreview", "TraceChannels", "materialize_world", "open_bundle", "record_preview", "render_source"]
+__all__ = ["PlanPreview", "TraceChannels", "record_preview", "render_source"]
 
 # ssrobot's codes for a render handle that can no longer describe its runtime: the
 # runtime reopened (make a new handle) or is not open.
