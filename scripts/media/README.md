@@ -54,6 +54,6 @@ capture shows the same scene and motion kind but not byte-identical frames.
 At most 500 KiB per animated clip and 2 MiB for all of `assets/readme/`; the current set is
 about 1.2 MiB. Prefer a shorter or tighter clip over a lower quality setting.
 
-The README refers to the clips by absolute `raw.githubusercontent.com` URLs on `main`, since
-PyPI shows the same README and resolves no relative paths. `scripts/check_readme.py` checks
-that every one of those files exists.
+The README refers to the clips by relative paths. PyPI shows the same README but resolves
+no relative paths, so the build rewrites them to `raw.githubusercontent.com` URLs on `main`;
+`scripts/check_readme.py` checks that every one of those files exists.

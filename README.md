@@ -1,8 +1,8 @@
 # mj_viser
 
 [![Release](https://img.shields.io/github/v/release/personalrobotics/mj_viser)](https://github.com/personalrobotics/mj_viser/releases/latest)
-[![Python](https://img.shields.io/badge/python-3.11%E2%80%933.14-blue.svg)](https://github.com/personalrobotics/mj_viser/blob/main/pyproject.toml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/personalrobotics/mj_viser/blob/main/LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%E2%80%933.14-blue.svg)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 See any MuJoCo simulation in your browser: live as it runs, as a plan before it runs, or replayed afterwards.
 
@@ -12,15 +12,15 @@ mj_viser renders the MuJoCo state you give it, on [Viser](https://github.com/vis
   <tr>
     <td width="50%">
       <picture>
-        <source media="(prefers-reduced-motion: reduce)" srcset="https://raw.githubusercontent.com/personalrobotics/mj_viser/main/assets/readme/geodude_contacts.jpg">
-        <img src="https://raw.githubusercontent.com/personalrobotics/mj_viser/main/assets/readme/geodude_contacts.webp" width="100%" alt="Geodude, a bimanual robot on a worktable, reaches for a blue cylinder and closes its hand on it; contact points and red force arrows appear where its fingers touch the cylinder.">
+        <source media="(prefers-reduced-motion: reduce)" srcset="assets/readme/geodude_contacts.jpg">
+        <img src="assets/readme/geodude_contacts.webp" width="100%" alt="Geodude, a bimanual robot on a worktable, reaches for a blue cylinder and closes its hand on it; contact points and red force arrows appear where its fingers touch the cylinder.">
       </picture>
       <br><b>Follow a run live.</b> Geodude grasps a cylinder in an ssrobot run; the contacts appear as it closes its hand.
     </td>
     <td width="50%">
       <picture>
-        <source media="(prefers-reduced-motion: reduce)" srcset="https://raw.githubusercontent.com/personalrobotics/mj_viser/main/assets/readme/ada_live.jpg">
-        <img src="https://raw.githubusercontent.com/personalrobotics/mj_viser/main/assets/readme/ada_live.webp" width="100%" alt="ADA, an assistive arm mounted beside a seated user at a table, sweeps its wrist; beside the scene, a live plot of its joint positions and its wrist camera's image update as it moves.">
+        <source media="(prefers-reduced-motion: reduce)" srcset="assets/readme/ada_live.jpg">
+        <img src="assets/readme/ada_live.webp" width="100%" alt="ADA, an assistive arm mounted beside a seated user at a table, sweeps its wrist; beside the scene, a live plot of its joint positions and its wrist camera's image update as it moves.">
       </picture>
       <br><b>Watch its channels.</b> ADA beside its user: joint positions plotted and the wrist camera shown, as the run reads them.
     </td>
@@ -28,15 +28,15 @@ mj_viser renders the MuJoCo state you give it, on [Viser](https://github.com/vis
   <tr>
     <td width="50%">
       <picture>
-        <source media="(prefers-reduced-motion: reduce)" srcset="https://raw.githubusercontent.com/personalrobotics/mj_viser/main/assets/readme/geodude_preview.jpg">
-        <img src="https://raw.githubusercontent.com/personalrobotics/mj_viser/main/assets/readme/geodude_preview.webp" width="100%" alt="Geodude stands still while a translucent blue ghost of its right arm follows a planned reach to the cylinder as a slider in the side panel is dragged from start to end.">
+        <source media="(prefers-reduced-motion: reduce)" srcset="assets/readme/geodude_preview.jpg">
+        <img src="assets/readme/geodude_preview.webp" width="100%" alt="Geodude stands still while a translucent blue ghost of its right arm follows a planned reach to the cylinder as a slider in the side panel is dragged from start to end.">
       </picture>
       <br><b>Preview a plan.</b> Scrub a planned reach as a ghost, exactly as the planner timed it, before anything moves.
     </td>
     <td width="50%">
       <picture>
-        <source media="(prefers-reduced-motion: reduce)" srcset="https://raw.githubusercontent.com/personalrobotics/mj_viser/main/assets/readme/geodude_replay.jpg">
-        <img src="https://raw.githubusercontent.com/personalrobotics/mj_viser/main/assets/readme/geodude_replay.webp" width="100%" alt="Viser's recording player replays Geodude reaching for and grasping the cylinder, with a timeline along the bottom advancing as it plays.">
+        <source media="(prefers-reduced-motion: reduce)" srcset="assets/readme/geodude_replay.jpg">
+        <img src="assets/readme/geodude_replay.webp" width="100%" alt="Viser's recording player replays Geodude reaching for and grasping the cylinder, with a timeline along the bottom advancing as it plays.">
       </picture>
       <br><b>Replay a run.</b> A saved ssrobot run bundle, converted into a recording for Viser's own player.
     </td>
@@ -44,30 +44,30 @@ mj_viser renders the MuJoCo state you give it, on [Viser](https://github.com/vis
   <tr>
     <td width="50%">
       <picture>
-        <source media="(prefers-reduced-motion: reduce)" srcset="https://raw.githubusercontent.com/personalrobotics/mj_viser/main/assets/readme/g1.jpg">
-        <img src="https://raw.githubusercontent.com/personalrobotics/mj_viser/main/assets/readme/g1.webp" width="100%" alt="The Unitree G1 humanoid from MuJoCo Menagerie raises its right arm from standing and waves.">
+        <source media="(prefers-reduced-motion: reduce)" srcset="assets/readme/g1.jpg">
+        <img src="assets/readme/g1.webp" width="100%" alt="The Unitree G1 humanoid from MuJoCo Menagerie raises its right arm from standing and waves.">
       </picture>
       <br><b>Any MuJoCo model.</b> Unitree G1, posed by the caller's own loop.
     </td>
     <td width="50%">
       <picture>
-        <source media="(prefers-reduced-motion: reduce)" srcset="https://raw.githubusercontent.com/personalrobotics/mj_viser/main/assets/readme/shadow_hand.jpg">
-        <img src="https://raw.githubusercontent.com/personalrobotics/mj_viser/main/assets/readme/shadow_hand.webp" width="100%" alt="The Shadow Hand from MuJoCo Menagerie moves through its rock, paper, scissors, and pointing keyframes.">
+        <source media="(prefers-reduced-motion: reduce)" srcset="assets/readme/shadow_hand.jpg">
+        <img src="assets/readme/shadow_hand.webp" width="100%" alt="The Shadow Hand from MuJoCo Menagerie moves through its rock, paper, scissors, and pointing keyframes.">
       </picture>
       <br><b>Textured meshes, as MuJoCo draws them.</b> The Shadow Hand through its own keyframes.
     </td>
   </tr>
 </table>
 
-Every clip is a real mj_viser session; [scripts/media](https://github.com/personalrobotics/mj_viser/tree/main/scripts/media) records them from public inputs.
+Every clip is a real mj_viser session; [scripts/media](scripts/media) records them from public inputs.
 
 ## What you can do
 
-- **View your own MuJoCo loop.** Hand the viewer your `MjData` whenever you want it shown; it renders a copy. [Quick start](https://github.com/personalrobotics/mj_viser#quick-start)
-- **Follow an ssrobot run live.** Attach to a running [ssrobot](https://github.com/personalrobotics/ssrobot) robot with its named channels, camera images, and contacts, without being able to affect it. [Follow a run](https://github.com/personalrobotics/mj_viser#follow-an-ssrobot-run)
-- **Replay a run bundle.** Turn a saved, verified ssrobot run into a recording anyone can scrub. [Replay a run bundle](https://github.com/personalrobotics/mj_viser#replay-a-run-bundle)
+- **View your own MuJoCo loop.** Hand the viewer your `MjData` whenever you want it shown; it renders a copy. [Quick start](#quick-start)
+- **Follow an ssrobot run live.** Attach to a running [ssrobot](https://github.com/personalrobotics/ssrobot) robot with its named channels, camera images, and contacts, without being able to affect it. [Follow a run](#follow-an-ssrobot-run)
+- **Replay a run bundle.** Turn a saved, verified ssrobot run into a recording anyone can scrub. [Replay a run bundle](#replay-a-run-bundle)
 
-Along the way: [plan previews](https://github.com/personalrobotics/mj_viser#preview-a-plan) as per-browser ghosts, [contacts](https://github.com/personalrobotics/mj_viser#contacts) with force arrows, [channel panels](https://github.com/personalrobotics/mj_viser#channels-and-status) with plots and images, and [recordings](https://github.com/personalrobotics/mj_viser#record-states) of any model. Each browser picks what it sees; none can change the run.
+Along the way: [plan previews](#preview-a-plan) as per-browser ghosts, [contacts](#contacts) with force arrows, [channel panels](#channels-and-status) with plots and images, and [recordings](#record-states) of any model. Each browser picks what it sees; none can change the run.
 
 ## Install
 
@@ -83,7 +83,7 @@ It brings MuJoCo, Viser, NumPy, trimesh, and Pillow. The ssrobot integration is 
 pip install "ssrobot[mujoco] @ git+https://github.com/personalrobotics/ssrobot.git"
 ```
 
-To work on mj_viser itself, see [Development](https://github.com/personalrobotics/mj_viser#development).
+To work on mj_viser itself, see [Development](#development).
 
 ## Quick start
 
@@ -122,7 +122,7 @@ with MujocoViewer(model) as viewer:  # serves http://127.0.0.1:8080
         time.sleep(model.opt.timestep)
 ```
 
-Open the printed URL and the pendulum swings. Load your own model with `mujoco.MjModel.from_xml_path("robot.xml")`; [examples/](https://github.com/personalrobotics/mj_viser/tree/main/examples) does the same for any MJCF file, such as a [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie) robot.
+Open the printed URL and the pendulum swings. Load your own model with `mujoco.MjModel.from_xml_path("robot.xml")`; [examples/](examples) does the same for any MJCF file, such as a [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie) robot.
 
 - `MujocoViewer(model, host="127.0.0.1", port=8080)`: loopback by default; serving other machines is an explicit `host=` choice. `port=0` picks a free port.
 - `open()` returns the URL and raises `OSError` if the address cannot be bound; `close()` releases it, and `open()` again reuses the viewer. `with` does both.
@@ -180,7 +180,7 @@ python -m mj_viser.integrations.ssrobot.replay run-bundle/ replay/
 # replay/conversion.json   what is shown when, what is not, and every interval without a frame
 ```
 
-[Play it](https://github.com/personalrobotics/mj_viser#playing-a-recording) in Viser's player.
+[Play it](#playing-a-recording) in Viser's player.
 
 - Frames are the run's `SceneSnapshot`s, at the cadence the run took them with `ctx.snapshot()`. Nothing is interpolated.
 - Text in the scene shows the run's `TraceChannels` board at each record's time, with camera images beside it. `conversion.json` lists every channel as displayed, malformed, unavailable, or unsupported, and every image reading as shown or malformed.
@@ -353,7 +353,7 @@ Each rule follows MuJoCo's own visualizer, and the end-to-end check compares the
 
 - **Types**: box, sphere, cylinder, capsule, ellipsoid, plane, and mesh render. Height fields and SDFs do not and are listed in `scene_report()["unsupported"]`.
 - **Color**: a material's rgba applies only while the geom's rgba is MuJoCo's default `0.5 0.5 0.5 1`; an explicit geom rgba wins.
-- **Filtering**: a geom or site whose resolved alpha is 0 is not drawn (`filtered` in the report). Groups 0–2 are visible and 3–5 hidden by default, as in MuJoCo; see [Groups](https://github.com/personalrobotics/mj_viser#groups).
+- **Filtering**: a geom or site whose resolved alpha is 0 is not drawn (`filtered` in the report). Groups 0–2 are visible and 3–5 hidden by default, as in MuJoCo; see [Groups](#groups).
 - **Sites**: sphere, capsule, ellipsoid, cylinder, and box sites render with MuJoCo's size, local pose, and color rules (the same material rule as geoms).
 - **Textures**: 2D textures render on meshes with texture coordinates and on planes. Meshes and planes honor the material's `texrepeat`, and planes also `texuniform`, as MuJoCo's renderer does. Textures on other geom types, and cube or skybox textures, are not drawn; the geom keeps its base color and the report lists it. STL meshes render double-sided.
 - **Infinite planes** (size 0) render as a square of half-size 50 m, noted in `scene_report()["diagnostics"]`.
@@ -369,7 +369,7 @@ Each rule follows MuJoCo's own visualizer, and the end-to-end check compares the
 | trimesh | `>=3.21.7` |
 | Pillow | `>=9.2` |
 
-CI runs the same end-to-end check from a clean wheel install, in parallel jobs, on the exact wheel it builds and uploads together with each run's report and recording: the locked versions (`uv.lock`) on every supported Python, every declared minimum on Python 3.11, and the newest allowed releases (on Python 3.14 for pull requests; on every Python for `main` and a nightly run). It runs the [quick start](https://github.com/personalrobotics/mj_viser#quick-start) as written, and renders public robots from MuJoCo Menagerie (`trossen_wxai`, `robotiq_2f85`, `unitree_go1`) at a pinned commit. Separate jobs check the ssrobot integration on its reference robots, Geodude and ADA.
+CI runs the same end-to-end check from a clean wheel install, in parallel jobs, on the exact wheel it builds and uploads together with each run's report and recording: the locked versions (`uv.lock`) on every supported Python, every declared minimum on Python 3.11, and the newest allowed releases (on Python 3.14 for pull requests; on every Python for `main` and a nightly run). It runs the [quick start](#quick-start) as written, and renders public robots from MuJoCo Menagerie (`trossen_wxai`, `robotiq_2f85`, `unitree_go1`) at a pinned commit. Separate jobs check the ssrobot integration on its reference robots, Geodude and ADA.
 
 ## Development
 
@@ -389,7 +389,7 @@ The end-to-end check builds the wheel, installs it into a clean virtualenv, and 
 UV_PYTHON=3.12 scripts/smoke_wheel.sh dist/smoke locked
 ```
 
-It writes `dist/smoke/locked/smoke_report.json` (results, input-state hashes, installed versions, wheel sha256) and `dist/smoke/locked/two_states.viser`, a recording of two rendered states; [play it](https://github.com/personalrobotics/mj_viser#playing-a-recording) to see them. Add `lowest` and `latest` to run the declared-minimum and newest-release environments too. [CONTRIBUTING.md](https://github.com/personalrobotics/mj_viser/blob/main/CONTRIBUTING.md) has the rest.
+It writes `dist/smoke/locked/smoke_report.json` (results, input-state hashes, installed versions, wheel sha256) and `dist/smoke/locked/two_states.viser`, a recording of two rendered states; [play it](#playing-a-recording) to see them. Add `lowest` and `latest` to run the declared-minimum and newest-release environments too. [CONTRIBUTING.md](CONTRIBUTING.md) has the rest.
 
 ## Citation
 
@@ -397,4 +397,4 @@ If mj_viser helps your work, please cite the repository: GitHub's **Cite this re
 
 ## License
 
-[MIT](https://github.com/personalrobotics/mj_viser/blob/main/LICENSE)
+[MIT](LICENSE)

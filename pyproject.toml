@@ -10,7 +10,7 @@ maintainers = [
     {name = "Siddhartha Srinivasa", email = "siddhartha.srinivasa@gmail.com"},
 ]
 requires-python = ">=3.11,<3.15"
-readme = "README.md"
+dynamic = ["readme"]
 dependencies = [
     "mujoco>=3.12",
     "numpy>=1.24",
@@ -26,13 +26,34 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-fancy-pypi-readme==25.1.0"]
 build-backend = "hatchling.build"
 
 [project.urls]
 Homepage = "https://github.com/personalrobotics/mj_viser"
 Repository = "https://github.com/personalrobotics/mj_viser"
 Issues = "https://github.com/personalrobotics/mj_viser/issues"
+
+# The README is the PyPI project description. PyPI resolves no relative paths and gives
+# headings no anchors, so the build points them at the repository's main branch;
+# scripts/check_readme.py checks the result.
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '(src|srcset)="(?!https?://)([^"]+)"'
+replacement = '\1="https://raw.githubusercontent.com/personalrobotics/mj_viser/main/\2"'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '\]\(#([^)]+)\)'
+replacement = '](https://github.com/personalrobotics/mj_viser#\1)'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '\]\((?!https?://|#)([^)]+)\)'
+replacement = '](https://github.com/personalrobotics/mj_viser/blob/main/\1)'
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mj_viser"]
