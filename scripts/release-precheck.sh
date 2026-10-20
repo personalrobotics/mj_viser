@@ -3,7 +3,7 @@
 # Copyright (c) 2025 Siddhartha Srinivasa
 #
 # The release gate, locally: what the release workflow checks before it publishes, on one
-# build, before you push a tag. Needs uv, and port 8080 free (the README's quick start).
+# build, before you push a tag. Needs uv.
 #
 # Usage: scripts/release-precheck.sh [TAG]     e.g. scripts/release-precheck.sh v1.0.0rc1
 #
