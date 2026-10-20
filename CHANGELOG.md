@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- The concept DOI, 10.5281/zenodo.23507202, in `CITATION.cff` and the README, with its
+  badges and a BibTeX entry (#49).
+
 ## 1.0.0 — 2026-10-20
 
 The first release on PyPI, as `ssmjviser`. From this release, the public API in
