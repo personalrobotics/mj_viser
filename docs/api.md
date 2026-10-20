@@ -56,6 +56,10 @@ importing the integration raises `ModuleNotFoundError` saying so.
 - `mj_viser.integrations.ssrobot.replay.Replay`
 - the command `python -m mj_viser.integrations.ssrobot.replay BUNDLE OUT_DIR`
 
+ssrobot's own functions are imported from ssrobot, not from mj_viser: for example
+`from ssrobot import open_bundle` and `from ssrobot.mujoco import materialize_world,
+materialize_world_from`.
+
 The integration's names and signatures follow the same versioning. The ssrobot it works
 with does not: ssrobot is not yet 1.0, and each mj_viser release supports the ssrobot commit
 its CI pins (see the release notes). A change in ssrobot can require an mj_viser release;
