@@ -39,9 +39,11 @@ it does.
 
 ### The README
 
-The README is also the PyPI project description. Its images and links are absolute URLs;
-`scripts/check_readme.py` renders the built wheel's description as PyPI does and checks
-each one (CI runs it on every build). The clips at its top are captured by
+The README is also the PyPI project description. Write its images and links as relative
+paths and `#` anchors, which work on GitHub and in editors; the build (the
+`fancy-pypi-readme` hook in `pyproject.toml`) points them at the repository's `main`
+branch, and `scripts/check_readme.py` renders the built wheel's description as PyPI does and
+checks each one (CI runs it on every build). The clips at its top are captured by
 `scripts/media/capture.py`; [scripts/media/README.md](scripts/media/README.md) says how.
 
 ## Pull requests
