@@ -13,7 +13,8 @@ $GITHUB_OUTPUT); ``index`` is ``testpypi``, ``pypi``, or ``none`` (build and ver
 A tag must be annotated, be ``v`` plus the package's version exactly (``vX.Y.Z`` or
 ``vX.Y.ZrcN``), and name a version the index does not have. A release candidate goes to
 TestPyPI only; a release (1.0.0 or later) goes to PyPI only, from a commit on main,
-with its CHANGELOG section. Standard library only.
+with its CHANGELOG section. A manual run may publish only a pre-release (``rcN`` or
+``.devN``), and only to TestPyPI. Standard library only.
 """
 
 from __future__ import annotations
@@ -53,6 +54,8 @@ def decide(ref: str, event: str, publish_testpypi: bool) -> dict[str, str]:
         if event != "workflow_dispatch":
             raise SystemExit(f"a release runs for a tag or a manual run, not {event} on {ref}")
         index = "testpypi" if publish_testpypi else "none"
+        if index == "testpypi" and not re.search(r"(rc|\.dev)\d+$", version):
+            raise SystemExit(f"a manual run publishes only a pre-release to TestPyPI, not {version}")
         if index == "testpypi" and _published(index, version):
             raise SystemExit(f"TestPyPI already has {NAME} {version}; bump the version")
         return {"version": version, "tag": "", "index": index}

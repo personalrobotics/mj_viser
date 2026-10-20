@@ -128,9 +128,13 @@ jobs:
           path: release-report.json
           if-no-files-found: error
 
+  # Each publish job checks its target again, from the tag and version alone: a release
+  # candidate or manual pre-release can reach only TestPyPI, a release only PyPI.
   publish-testpypi:
     needs: [guard, report]
-    if: needs.guard.outputs.index == 'testpypi'
+    if: >-
+      needs.guard.outputs.index == 'testpypi' &&
+      (github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/v') && contains(github.ref, 'rc')))
     runs-on: ubuntu-latest
     environment:
       name: testpypi
@@ -143,10 +147,19 @@ jobs:
           name: dist
           path: dist/
 
+      - name: Refuse anything but a pre-release
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(rc|\.dev)[0-9]+$ ]] || { echo "::error::$VERSION is not a pre-release"; exit 1; }
+          if [ "$GITHUB_EVENT_NAME" = push ]; then [ "$GITHUB_REF" = "refs/tags/v$VERSION" ] || { echo "::error::$GITHUB_REF is not v$VERSION"; exit 1; }; fi
+
       - name: Verify artifact hashes and select the verified distributions
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
         run: |
           (cd dist && sha256sum -c SHA256SUMS)
-          mkdir upload && cp dist/mj_viser-${{ needs.guard.outputs.version }}.tar.gz dist/mj_viser-${{ needs.guard.outputs.version }}-py3-none-any.whl upload/
+          mkdir upload && cp "dist/mj_viser-$VERSION.tar.gz" "dist/mj_viser-$VERSION-py3-none-any.whl" upload/
           ls -l upload/
 
       - name: Publish to TestPyPI
@@ -157,7 +170,9 @@ jobs:
 
   publish-pypi:
     needs: [guard, report]
-    if: needs.guard.outputs.index == 'pypi'
+    if: >-
+      needs.guard.outputs.index == 'pypi' && github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, 'rc')
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -170,10 +185,19 @@ jobs:
           name: dist
           path: dist/
 
+      - name: Refuse anything but a release from its own tag
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          [[ "$VERSION" =~ ^[1-9][0-9]*\.[0-9]+\.[0-9]+$ ]] || { echo "::error::$VERSION is not a 1.0+ release"; exit 1; }
+          [ "$GITHUB_REF" = "refs/tags/v$VERSION" ] || { echo "::error::$GITHUB_REF is not v$VERSION"; exit 1; }
+
       - name: Verify artifact hashes and select the verified distributions
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
         run: |
           (cd dist && sha256sum -c SHA256SUMS)
-          mkdir upload && cp dist/mj_viser-${{ needs.guard.outputs.version }}.tar.gz dist/mj_viser-${{ needs.guard.outputs.version }}-py3-none-any.whl upload/
+          mkdir upload && cp "dist/mj_viser-$VERSION.tar.gz" "dist/mj_viser-$VERSION-py3-none-any.whl" upload/
           ls -l upload/
 
       - name: Publish to PyPI
@@ -228,6 +252,19 @@ jobs:
           name: release-report
           path: .
 
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+
+      # Waits, a bounded time, for the index to list the version; then its files must be
+      # byte-for-byte the verified ones.
+      - name: The index serves exactly the verified files
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+          INDEX: ${{ needs.guard.outputs.index }}
+        run: uv run --no-project python scripts/release/published.py "$INDEX" "$VERSION" dist published.json
+
       - name: Install from the index and run the quick start
         env:
           VERSION: ${{ needs.guard.outputs.version }}
@@ -239,12 +276,12 @@ jobs:
             # Dependencies come from PyPI; only mj-viser from TestPyPI.
             source=(--index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/)
           fi
-          for attempt in $(seq 1 20); do  # an index can take minutes to serve a new version
+          for attempt in $(seq 1 10); do  # the simple index can lag the JSON API briefly
             if fresh/bin/pip install --no-cache-dir "${source[@]}" "mj-viser==$VERSION"; then break; fi
-            [ "$attempt" = 20 ] && exit 1
+            [ "$attempt" = 10 ] && exit 1
             sleep 30
           done
-          fresh/bin/python -I scripts/release/installed.py release-report.json
+          fresh/bin/python -I scripts/release/installed.py release-report.json published.json
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
