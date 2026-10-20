@@ -2,8 +2,19 @@
 
 ## Unreleased
 
+### Added
+
+- A documented public API with a Semantic Versioning and deprecation contract
+  (`docs/api.md`), checked against what the package exports; `py.typed`, with a strict
+  downstream type check of the installed wheel in CI; `CITATION.cff`; and a release
+  workflow that publishes tags to TestPyPI and PyPI with Trusted Publishing, from the files
+  CI verified, with `scripts/release-precheck.sh` as its local mirror (#49).
+
 ### Changed
 
+- `mj_viser.integrations.ssrobot.__all__` no longer lists `open_bundle` and
+  `materialize_world`, which are ssrobot's own functions; they are not part of mj_viser's
+  API (#49).
 - The README leads with what mj_viser does, shown in clips captured from real runs, and
   installs from the release wheel; it is ready to be the PyPI project description: the
   build points its relative images and links at the repository, and each is checked from

@@ -1,7 +1,7 @@
 [project]
 name = "mj-viser"
 version = "0.4.0"
-description = "Web-based MuJoCo viewer using Viser"
+description = "See MuJoCo simulations in your browser: live, as plans, or replayed"
 license = "MIT"
 authors = [
     {name = "Siddhartha Srinivasa", email = "siddhartha.srinivasa@gmail.com"},
@@ -10,6 +10,21 @@ maintainers = [
     {name = "Siddhartha Srinivasa", email = "siddhartha.srinivasa@gmail.com"},
 ]
 requires-python = ">=3.11,<3.15"
+keywords = ["mujoco", "robotics", "simulation", "visualization", "viser"]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Typing :: Typed",
+]
 dynamic = ["readme"]
 dependencies = [
     "mujoco>=3.12",
@@ -33,6 +48,8 @@ build-backend = "hatchling.build"
 Homepage = "https://github.com/personalrobotics/mj_viser"
 Repository = "https://github.com/personalrobotics/mj_viser"
 Issues = "https://github.com/personalrobotics/mj_viser/issues"
+Changelog = "https://github.com/personalrobotics/mj_viser/blob/main/CHANGELOG.md"
+"Public API" = "https://github.com/personalrobotics/mj_viser/blob/main/docs/api.md"
 
 # The README is the PyPI project description. PyPI resolves no relative paths and gives
 # headings no anchors, so the build points them at the repository's main branch;

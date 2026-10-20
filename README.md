@@ -360,6 +360,8 @@ Each rule follows MuJoCo's own visualizer, and the end-to-end check compares the
 
 ## Compatibility
 
+[docs/api.md](docs/api.md) lists the public API, which follows Semantic Versioning from 1.0.0, and how versions, deprecations, and releases work.
+
 | | Supported |
 | --- | --- |
 | Python | 3.11–3.14 (3.15 awaits wheels for Viser's `zstandard` dependency) |
@@ -393,7 +395,7 @@ It writes `dist/smoke/locked/smoke_report.json` (results, input-state hashes, in
 
 ## Citation
 
-If mj_viser helps your work, please cite the repository: GitHub's **Cite this repository** button gives its citation once machine-readable citation metadata is published with the first stable release.
+If mj_viser helps your work, please cite it. [CITATION.cff](CITATION.cff) holds its citation metadata, and GitHub's **Cite this repository** button (in the repository's sidebar) turns it into APA or BibTeX.
 
 ## License
 
