@@ -6,6 +6,8 @@
 
 See any MuJoCo simulation in your browser: live as it runs, as a plan before it runs, or replayed afterwards.
 
+Install with `pip install ssmjviser`; import as `mj_viser`.
+
 mj_viser renders the MuJoCo state you give it, on [Viser](https://github.com/viser-project/viser). It is read-only and caller-driven: it never steps a simulation, commands a robot, or changes your data. Your code owns the model, the clock, and every decision about what runs; teleoperation, task controls, and safety policy belong to your application.
 
 <table>
@@ -94,7 +96,7 @@ import time
 
 import mujoco
 
-from mj_viser import MujocoViewer
+from mj_viser import MujocoViewer  # installed by: pip install ssmjviser
 
 PENDULUM = """
 <mujoco>
