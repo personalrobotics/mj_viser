@@ -1,8 +1,9 @@
 # mj_viser
 
-[![Release](https://img.shields.io/github/v/release/personalrobotics/mj_viser)](https://github.com/personalrobotics/mj_viser/releases/latest)
-[![Python](https://img.shields.io/badge/python-3.11%E2%80%933.14-blue.svg)](pyproject.toml)
+[![PyPI](https://img.shields.io/pypi/v/ssmjviser.svg)](https://pypi.org/project/ssmjviser/)
+[![Python](https://img.shields.io/pypi/pyversions/ssmjviser.svg)](https://pypi.org/project/ssmjviser/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23507202.svg)](https://doi.org/10.5281/zenodo.23507202)
 
 See any MuJoCo simulation in your browser: live as it runs, as a plan before it runs, or replayed afterwards.
 
@@ -397,7 +398,17 @@ It writes `dist/smoke/locked/smoke_report.json` (results, input-state hashes, in
 
 ## Citation
 
-If mj_viser helps your work, please cite it. [CITATION.cff](CITATION.cff) holds its citation metadata, and GitHub's **Cite this repository** button (in the repository's sidebar) turns it into APA or BibTeX.
+If mj_viser helps your work, please cite it. [CITATION.cff](CITATION.cff) holds its citation metadata, and GitHub's **Cite this repository** button (in the repository's sidebar) turns it into APA or BibTeX. The DOI [10.5281/zenodo.23507202](https://doi.org/10.5281/zenodo.23507202) always resolves to the latest release; each release also has its own on Zenodo.
+
+```bibtex
+@software{srinivasa_mj_viser,
+  author    = {Srinivasa, Siddhartha},
+  title     = {mj\_viser: MuJoCo in the browser, live, as plans, and replayed},
+  publisher = {Zenodo},
+  doi       = {10.5281/zenodo.23507202},
+  url       = {https://doi.org/10.5281/zenodo.23507202}
+}
+```
 
 ## License
 

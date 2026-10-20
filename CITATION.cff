@@ -2,11 +2,15 @@
 #
 # Per-release metadata (version, date) lives in each Zenodo archive, which takes it from
 # the release tag, so this file has neither and needs no bump per release. The concept DOI
-# is added once Zenodo has archived the first release.
+# below always resolves to the latest release.
 cff-version: 1.2.0
 title: "mj_viser: MuJoCo in the browser, live, as plans, and replayed"
 message: "If you use mj_viser in your work, please cite it using this metadata."
 type: software
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.23507202"
+    description: "Concept DOI: always resolves to the latest release."
 authors:
   - given-names: Siddhartha
     family-names: Srinivasa
