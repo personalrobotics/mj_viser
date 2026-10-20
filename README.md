@@ -114,7 +114,7 @@ model = mujoco.MjModel.from_xml_string(PENDULUM)
 data = mujoco.MjData(model)
 data.qpos[0] = 1.0  # start it swinging
 
-with MujocoViewer(model) as viewer:  # serves http://127.0.0.1:8080
+with MujocoViewer(model, port=0) as viewer:  # any free port on this machine
     print("Open", viewer.url)
     for _ in range(10_000):  # 20 s of simulated time
         mujoco.mj_step(model, data)  # you step; the viewer never does
@@ -124,7 +124,7 @@ with MujocoViewer(model) as viewer:  # serves http://127.0.0.1:8080
 
 Open the printed URL and the pendulum swings. Load your own model with `mujoco.MjModel.from_xml_path("robot.xml")`; [examples/](examples) does the same for any MJCF file, such as a [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie) robot.
 
-- `MujocoViewer(model, host="127.0.0.1", port=8080)`: loopback by default; serving other machines is an explicit `host=` choice. `port=0` picks a free port.
+- `MujocoViewer(model, host="127.0.0.1", port=8080)`: loopback by default; serving other machines is an explicit `host=` choice. `port=0`, as above, picks a free port; `viewer.url` says which.
 - `open()` returns the URL and raises `OSError` if the address cannot be bound; `close()` releases it, and `open()` again reuses the viewer. `with` does both.
 - `update(data)` recomputes kinematics on its copy, so setting `qpos` alone (for example, replaying a trace) is enough. Panels read that copy as `viewer.data`.
 
