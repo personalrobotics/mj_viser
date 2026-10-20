@@ -32,9 +32,13 @@ from typing import Any
 
 import mujoco
 
-from mj_viser.integrations.ssrobot import materialize_world, open_bundle
+# isort: off
+# Importing the integration first says what is missing when ssrobot is not installed.
 from mj_viser.integrations.ssrobot.channels import TraceChannels
 from mj_viser.recording import IMAGES, TEXT, StateRecorder
+from ssrobot import open_bundle  # type: ignore[import-not-found,unused-ignore]
+from ssrobot.mujoco import materialize_world  # type: ignore[import-not-found,unused-ignore]
+# isort: on
 
 __all__ = ["Replay", "convert_bundle", "record_trace"]
 
