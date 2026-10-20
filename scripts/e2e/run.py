@@ -37,6 +37,7 @@ from e2e.lifecycle import check_lifecycle  # noqa: E402
 from e2e.live_view import check_live_view  # noqa: E402
 from e2e.package_checks import check_boundary, check_package  # noqa: E402
 from e2e.preview import check_preview  # noqa: E402
+from e2e.readme import check_quick_start  # noqa: E402
 from e2e.recording import check_recording  # noqa: E402
 from e2e.rendering import two_states  # noqa: E402
 from e2e.robots import robot_scenario  # noqa: E402
@@ -64,6 +65,7 @@ def main(out_dir: str, env_label: str) -> None:
     report["images"] = check_images(model, out_dir)
     report["preview"] = check_preview(model)
     report["contacts"] = check_contacts(out_dir)
+    report["readme_quick_start"] = check_quick_start()
 
     if robots := os.environ.get("MJ_VISER_ROBOT_XML"):
         report["robots"] = [robot_scenario(path, out_dir) for path in robots.split(os.pathsep)]

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- The README leads with what mj_viser does, shown in clips captured from real runs, and
+  installs from the release wheel; it is ready to be the PyPI project description, with
+  every image and link absolute and checked from the built wheel (#48). CONTRIBUTING and
+  the issue and pull request templates treat mj_viser as a standalone package.
+
 ## 0.4.0 — 2026-10-19
 
 ### Changed
