@@ -48,6 +48,11 @@ jobs:
           uv build --out-dir dist
           (cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS)
 
+      # The wheel's long description, rendered as PyPI renders it: every image and link
+      # absolute and resolving to this repository's main branch where it points there.
+      - name: Check the README as PyPI shows it
+        run: uv run --no-project --with "readme-renderer[md]==44.0" python scripts/check_readme.py dist .
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: dist
