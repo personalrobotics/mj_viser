@@ -1,0 +1,29 @@
+# Citation File Format 1.2.0: https://citation-file-format.github.io
+#
+# Per-release metadata (version, date) lives in each Zenodo archive, which takes it from
+# the release tag, so this file has neither and needs no bump per release. The concept DOI
+# is added once Zenodo has archived the first release.
+cff-version: 1.2.0
+title: "mj_viser: MuJoCo in the browser, live, as plans, and replayed"
+message: "If you use mj_viser in your work, please cite it using this metadata."
+type: software
+authors:
+  - given-names: Siddhartha
+    family-names: Srinivasa
+    email: siddhartha.srinivasa@gmail.com
+    orcid: "https://orcid.org/0000-0002-5091-106X"
+repository-code: "https://github.com/personalrobotics/mj_viser"
+license: MIT
+keywords:
+  - robotics
+  - mujoco
+  - visualization
+  - simulation
+  - viser
+abstract: >
+  mj_viser renders MuJoCo simulations in the browser, on Viser. It is read-only and
+  caller-driven: it shows the state its caller supplies and never steps a simulation or
+  commands a robot. It follows running simulations live, with named channels, camera
+  images, and contacts; previews planned motions as per-browser ghosts; records states as
+  native Viser recordings; and, through an optional ssrobot integration, follows ssrobot
+  runs and replays their verified run bundles.
