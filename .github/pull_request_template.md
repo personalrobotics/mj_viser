@@ -9,11 +9,10 @@
 
 ## Testing
 
+- [ ] `uv run ruff check .` and `uv run ruff format --check .` pass
 - [ ] `uv run mypy src` passes
 - [ ] `scripts/smoke_wheel.sh dist/smoke locked` passes
-- [ ] `uv run ruff check .` passes
-- [ ] `uv run ruff format --check .` passes
-- [ ] Integration tested locally against the robot-code workspace (if cross-repo)
+- [ ] The ssrobot integration jobs pass (if `mj_viser.integrations.ssrobot` changed)
 
 ## Breaking changes
 
@@ -22,4 +21,4 @@
 
 ## Related issues
 
-<!-- e.g. Fixes #123, Part of personalrobotics/robot-code#3 -->
+<!-- e.g. Fixes #123 -->
