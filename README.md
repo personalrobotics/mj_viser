@@ -71,13 +71,13 @@ Along the way: [plan previews](#preview-a-plan) as per-browser ghosts, [contacts
 
 ## Install
 
-mj_viser needs Python 3.11–3.14. Install the wheel from the [latest release](https://github.com/personalrobotics/mj_viser/releases/latest):
+mj_viser needs Python 3.11–3.14. It is published on PyPI as `ssmjviser`, and imported as `mj_viser`:
 
 ```bash
-pip install https://github.com/personalrobotics/mj_viser/releases/download/v0.4.0/mj_viser-0.4.0-py3-none-any.whl
+pip install ssmjviser
 ```
 
-It brings MuJoCo, Viser, NumPy, trimesh, and Pillow. The ssrobot integration is optional; for it, install [ssrobot](https://github.com/personalrobotics/ssrobot) with its MuJoCo extra as well:
+Each [release](https://github.com/personalrobotics/mj_viser/releases) also carries its wheel and sdist, with their checksums. It brings MuJoCo, Viser, NumPy, trimesh, and Pillow. The ssrobot integration is optional; for it, install [ssrobot](https://github.com/personalrobotics/ssrobot) with its MuJoCo extra as well:
 
 ```bash
 pip install "ssrobot[mujoco] @ git+https://github.com/personalrobotics/ssrobot.git"

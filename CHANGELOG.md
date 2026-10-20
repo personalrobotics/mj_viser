@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 — 2026-10-20
+
+The first release on PyPI, as `ssmjviser`. From this release, the public API in
+`docs/api.md` follows Semantic Versioning.
 
 ### Added
 
@@ -24,6 +27,15 @@
   build points its relative images and links at the repository, and each is checked from
   the built wheel (#48). CONTRIBUTING and
   the issue and pull request templates treat mj_viser as a standalone package.
+- The README installs with `pip install ssmjviser`.
+
+### Known limitations
+
+- Viser sends a node's new pose only when it is not `np.allclose` (rtol 1e-5) to the
+  last one sent, so a body can lag a supplied state by about 1e-5 per local transform,
+  live and in recordings (#44).
+- ssrobot traces carry contact channels per declared pair, not contact geometry, so
+  ssrobot replays show contact channels but no contact points or arrows (#56).
 
 ## 0.4.0 — 2026-10-19
 
