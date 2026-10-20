@@ -1,6 +1,6 @@
 [project]
 name = "ssmjviser"
-version = "1.0.0"
+version = "1.0.1"
 description = "See MuJoCo simulations in your browser: live, as plans, or replayed"
 license = "MIT"
 authors = [
