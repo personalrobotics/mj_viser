@@ -25,7 +25,7 @@ UV_PYTHON=3.12 scripts/smoke_wheel.sh dist/smoke locked   # end-to-end check fro
 
 The end-to-end check builds the wheel, installs it into a fresh virtualenv, and runs
 `scripts/e2e/run.py` against the installed package, including the README's quick start as
-written (it serves on port 8080, which must be free). Its report and recordings land in
+written. Its report and recordings land in
 `dist/smoke/locked/`.
 
 ### The ssrobot integration
@@ -77,7 +77,7 @@ builds and verifies, unless `publish_testpypi` is ticked.
 ### A release candidate
 
 1. In a pull request, set `version` in `pyproject.toml` to `X.Y.ZrcN`, and merge it.
-2. Tag the merged commit and check it locally (port 8080 free):
+2. Tag the merged commit and check it locally:
 
    ```bash
    git switch main && git pull

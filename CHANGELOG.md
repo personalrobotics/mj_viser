@@ -12,9 +12,11 @@
 
 ### Changed
 
-- `mj_viser.integrations.ssrobot.__all__` no longer lists `open_bundle` and
-  `materialize_world`, which are ssrobot's own functions; they are not part of mj_viser's
-  API (#49).
+- `mj_viser.integrations.ssrobot` no longer re-exports `open_bundle` and
+  `materialize_world`, which are ssrobot's own functions (#49). Migration: import them
+  from ssrobot, `from ssrobot import open_bundle` and
+  `from ssrobot.mujoco import materialize_world`.
+- The README's quick start serves on a free port and prints its URL.
 - The README leads with what mj_viser does, shown in clips captured from real runs, and
   installs from the release wheel; it is ready to be the PyPI project description: the
   build points its relative images and links at the repository, and each is checked from
