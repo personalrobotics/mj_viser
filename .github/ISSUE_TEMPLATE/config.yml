@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Questions and discussion
-    url: https://github.com/personalrobotics/robot-code/discussions
-    about: Ask questions or discuss design in the umbrella repo.
+  - name: Viser
+    url: https://github.com/viser-project/viser/issues
+    about: Problems in Viser itself (the browser client, recordings, or its server).
+  - name: ssrobot
+    url: https://github.com/personalrobotics/ssrobot/issues
+    about: Problems in ssrobot runs, bundles, or the reference robots.

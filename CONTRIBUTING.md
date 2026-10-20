@@ -1,23 +1,20 @@
 # Contributing
 
-This repository is part of the [robot-code workspace](https://github.com/personalrobotics/robot-code).
-All projects in the workspace share a common layout (`src/` + `tests/`), a single
-package manager (`uv`), and a common CI setup.
-
 ## Development setup
 
+mj_viser is a standalone package; clone it and use [uv](https://docs.astral.sh/uv/):
+
 ```bash
-git clone https://github.com/personalrobotics/robot-code
-cd robot-code
-./setup.sh
+git clone https://github.com/personalrobotics/mj_viser.git
+cd mj_viser
+uv sync --locked --all-extras
 ```
 
-This clones every sibling repo (including this one) into a single uv workspace
-and runs `uv sync`. You can then work in any sibling's directory.
+uv manages the development environment and the lock file (`uv.lock`); use it for any
+change to dependencies. Users install mj_viser with `pip` (or any installer); that path is
+what the end-to-end check exercises.
 
-## Running tests and linters
-
-From inside this repo:
+## Checks
 
 ```bash
 uv run ruff check .
@@ -26,24 +23,41 @@ uv run mypy src
 UV_PYTHON=3.12 scripts/smoke_wheel.sh dist/smoke locked   # end-to-end check from a clean wheel
 ```
 
-From the workspace root, you can also run the cross-repo integration suite:
+The end-to-end check builds the wheel, installs it into a fresh virtualenv, and runs
+`scripts/e2e/run.py` against the installed package, including the README's quick start as
+written (it serves on port 8080, which must be free). Its report and recordings land in
+`dist/smoke/locked/`.
 
-```bash
-uv run pytest tests/integration -v
-```
+### The ssrobot integration
+
+`mj_viser.integrations.ssrobot` is checked by separate CI jobs against ssrobot and its
+reference robots, Geodude and ADA, each pinned to a commit in `.github/workflows/ci.yml`.
+To run them locally, install those pins into an environment with the wheel, then run
+`scripts/e2e/ssrobot_live.py`, `ssrobot_replay.py`, `ssrobot_preview.py`, and
+`ssrobot_contacts.py` as the workflow does. Core mj_viser never imports ssrobot; CI fails if
+it does.
+
+### The README
+
+The README is also the PyPI project description. Its images and links are absolute URLs;
+`scripts/check_readme.py` renders the built wheel's description as PyPI does and checks
+each one (CI runs it on every build). The clips at its top are captured by
+`scripts/media/capture.py`; [scripts/media/README.md](scripts/media/README.md) says how.
 
 ## Pull requests
 
-- Branch from `main`. Open a PR with a clear summary and test plan.
-- Per-repo CI (ruff, mypy, and the clean-wheel end-to-end check) must pass.
-- Cross-repo integration CI in robot-code runs automatically when this repo's
-  `main` advances, and on scheduled nightly runs.
+- Branch from `main`. Open a PR with a clear summary and how you verified it.
+- CI (ruff, mypy, the README check, the clean-wheel end-to-end check on every supported
+  Python, and the ssrobot integration jobs) must pass.
 - Review is by [@siddhss5](https://github.com/siddhss5) (enforced via CODEOWNERS).
 
-## Package manager: uv only
+## The robot-code workspace (optional)
 
-We use [uv](https://docs.astral.sh/uv/) exclusively. **Do not use pip.**
-The workspace layout in robot-code relies on uv's workspace resolution.
+mj_viser is also part of the [robot-code workspace](https://github.com/personalrobotics/robot-code),
+which clones sibling repositories into one uv workspace for cross-repository work. It is
+not needed to develop mj_viser. When `main` advances and the repository has a
+`ROBOT_CODE_DISPATCH_TOKEN` secret, CI asks robot-code to run its integration suite; without
+the secret, that step is skipped with a notice.
 
 ## License
 
