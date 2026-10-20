@@ -33,14 +33,26 @@ class SourceStale(Exception):
 
 
 class RenderFrame(Protocol):
-    """What a source's data shows after a capture."""
+    """What a source's data shows after a capture.
 
-    time_ns: int
-    """Simulation time, in nanoseconds."""
-    revision: int
-    """Scene revision."""
-    world: str
-    """Identity of the model and scene the data describes."""
+    Its members are read-only, so a frozen dataclass, a named tuple, or plain attributes
+    all satisfy it.
+    """
+
+    @property
+    def time_ns(self) -> int:
+        """Simulation time, in nanoseconds."""
+        ...
+
+    @property
+    def revision(self) -> int:
+        """Scene revision."""
+        ...
+
+    @property
+    def world(self) -> str:
+        """Identity of the model and scene the data describes."""
+        ...
 
 
 class RenderSource(Protocol):

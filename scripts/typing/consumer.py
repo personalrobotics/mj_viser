@@ -5,10 +5,13 @@
 
 It is type-checked, not run: scripts/typing/check.sh installs a wheel into a fresh
 environment and runs mypy --strict on it, so mj_viser's own annotations (py.typed) are
-what the checker sees.
+what the checker sees. ssrobot is not installed there; the integration's own types are
+checked all the same.
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 import mujoco
 import numpy as np
@@ -29,6 +32,7 @@ from mj_viser import (
     contact_set,
 )
 from mj_viser.contacts import Contact, ContactSet
+from mj_viser.integrations.ssrobot import render_source
 
 
 class Frame:
@@ -72,6 +76,11 @@ def follow(source: RenderSource) -> int | None:
     frame = live.refresh()
     live.close()
     return None if frame is None else frame.time_ns + len(states)
+
+
+def follow_run(ctx: Any) -> LiveView:
+    """The README's "Follow an ssrobot run": ssrobot's render handle as a RenderSource."""
+    return LiveView(render_source(ctx))
 
 
 def strongest(model: mujoco.MjModel, data: mujoco.MjData) -> float:
