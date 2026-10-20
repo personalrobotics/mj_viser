@@ -38,7 +38,7 @@ if [ -n "${MJ_VISER_WHEEL:-}" ]; then
   wheel="$(cd "$(dirname "$MJ_VISER_WHEEL")" && pwd)/$(basename "$MJ_VISER_WHEEL")"
 else
   uv build --wheel --out-dir "$work/dist" "$repo" >/dev/null
-  wheel="$(ls "$work"/dist/mj_viser-*.whl)"
+  wheel="$(ls "$work"/dist/ssmjviser-*.whl)"
 fi
 sha="$(shasum -a 256 "$wheel" | cut -d' ' -f1)"
 

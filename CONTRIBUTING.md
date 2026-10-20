@@ -66,7 +66,7 @@ builds and verifies, unless `publish_testpypi` is ticked.
 
 ### One-time setup
 
-- On pypi.org and test.pypi.org, a trusted publisher for project `mj-viser`: owner
+- On pypi.org and test.pypi.org, a trusted publisher for project `ssmjviser`: owner
   `personalrobotics`, repository `mj_viser`, workflow `release.yml`, environment `pypi`
   (on pypi.org) or `testpypi` (on test.pypi.org). No API token is stored anywhere.
 - In the repository's settings, environments `pypi` and `testpypi`, each with a required
@@ -100,7 +100,7 @@ A failed candidate is fixed in a new pull request and tagged `rcN+1`.
 2. Tag, check, and push as above, with `vX.Y.Z`. The tag must be on `main`.
 3. Approve the `pypi` deployment. The run publishes to PyPI, then creates the GitHub
    Release with the same wheel, sdist, and `SHA256SUMS` and the changelog section as its
-   notes; Zenodo archives it. The run then installs `mj-viser==X.Y.Z` from PyPI and runs the
+   notes; Zenodo archives it. The run then installs `ssmjviser==X.Y.Z` from PyPI and runs the
    quick start.
 
 PyPI never accepts a version twice: a published release cannot be replaced or re-uploaded.
@@ -109,7 +109,7 @@ repeated. If a published release is broken, yank it on PyPI and release `X.Y.Z+1
 
 After the first release, record the concept DOI Zenodo minted (the one that resolves to
 the latest version) in `CITATION.cff`, and add the PyPI, Python, license, and DOI badges and
-a BibTeX entry to the README, with `pip install mj-viser` as its primary installation.
+a BibTeX entry to the README, with `pip install ssmjviser` as its primary installation.
 
 ## The robot-code workspace (optional)
 

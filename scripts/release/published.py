@@ -24,7 +24,7 @@ from pathlib import Path
 
 API = {"testpypi": "https://test.pypi.org/pypi", "pypi": "https://pypi.org/pypi"}
 ATTEMPTS, PAUSE_S = 20, 30  # up to ten minutes
-PROJECT, DIST_NAME = "mj-viser", "mj_viser"
+PROJECT, DIST_NAME = "ssmjviser", "ssmjviser"
 
 
 def _listing(index: str, version: str, names: set[str]) -> dict[str, dict[str, str]]:

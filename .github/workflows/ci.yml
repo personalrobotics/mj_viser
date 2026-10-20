@@ -84,7 +84,7 @@ jobs:
         run: (cd dist && sha256sum -c SHA256SUMS)
 
       - name: Strict type check of a downstream consumer
-        run: scripts/typing/check.sh "$(ls dist/mj_viser-*.whl)" typed-consumer.json
+        run: scripts/typing/check.sh "$(ls dist/ssmjviser-*.whl)" typed-consumer.json
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -160,7 +160,7 @@ jobs:
           MJ_VISER_REQUIRE_RENDER: "1"
         run: |
           robots=menagerie/trossen_wxai/scene.xml:menagerie/robotiq_2f85/scene.xml:menagerie/unitree_go1/scene.xml
-          MJ_VISER_WHEEL="$(ls dist/mj_viser-*.whl)" MJ_VISER_ROBOT_XML=$robots scripts/smoke_wheel.sh e2e ${{ matrix.env }}
+          MJ_VISER_WHEEL="$(ls dist/ssmjviser-*.whl)" MJ_VISER_ROBOT_XML=$robots scripts/smoke_wheel.sh e2e ${{ matrix.env }}
           cp dist/SHA256SUMS e2e/
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -195,7 +195,7 @@ jobs:
       - name: Install the wheel, ssrobot, and the reference robots
         run: |
           uv venv --quiet .ssrobot
-          uv pip install --quiet --python .ssrobot/bin/python "$(ls dist/mj_viser-*.whl)" \
+          uv pip install --quiet --python .ssrobot/bin/python "$(ls dist/ssmjviser-*.whl)" \
             "ssrobot[mujoco] @ git+https://github.com/personalrobotics/ssrobot.git@116f3c8214a6b3cc297a640a0ddf622c6fe497db" \
             "geodude-assets @ git+https://github.com/personalrobotics/geodude_assets.git@4f57fc45508c5dcad0c2426f48bb046d499340d0" \
             "ada-assets @ git+https://github.com/personalrobotics/ada_assets.git@b9880d45457dde90ae11f3704b6d8b1b6e99d00d"
@@ -252,7 +252,7 @@ jobs:
       - name: Install the wheel, ssrobot, and the reference robots
         run: |
           uv venv --quiet .ssrobot
-          uv pip install --quiet --python .ssrobot/bin/python "$(ls dist/mj_viser-*.whl)" \
+          uv pip install --quiet --python .ssrobot/bin/python "$(ls dist/ssmjviser-*.whl)" \
             "ssrobot[mujoco] @ git+https://github.com/personalrobotics/ssrobot.git@116f3c8214a6b3cc297a640a0ddf622c6fe497db" \
             "geodude-assets @ git+https://github.com/personalrobotics/geodude_assets.git@4f57fc45508c5dcad0c2426f48bb046d499340d0" \
             "ada-assets @ git+https://github.com/personalrobotics/ada_assets.git@b9880d45457dde90ae11f3704b6d8b1b6e99d00d"
@@ -316,7 +316,7 @@ jobs:
       - name: Install the wheel, ssrobot, and the reference robots
         run: |
           uv venv --quiet .ssrobot
-          uv pip install --quiet --python .ssrobot/bin/python "$(ls dist/mj_viser-*.whl)" \
+          uv pip install --quiet --python .ssrobot/bin/python "$(ls dist/ssmjviser-*.whl)" \
             "ssrobot[mujoco,planning] @ git+https://github.com/personalrobotics/ssrobot.git@116f3c8214a6b3cc297a640a0ddf622c6fe497db" \
             "geodude-assets @ git+https://github.com/personalrobotics/geodude_assets.git@4f57fc45508c5dcad0c2426f48bb046d499340d0" \
             "ada-assets @ git+https://github.com/personalrobotics/ada_assets.git@b9880d45457dde90ae11f3704b6d8b1b6e99d00d"

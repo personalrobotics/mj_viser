@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-INDEX_URLS = {"testpypi": "https://test.pypi.org/project/mj-viser/", "pypi": "https://pypi.org/project/mj-viser/"}
+INDEX_URLS = {"testpypi": "https://test.pypi.org/project/ssmjviser/", "pypi": "https://pypi.org/project/ssmjviser/"}
 
 
 def _load(path: Path) -> dict[str, object]:
@@ -36,7 +36,7 @@ def main(artifacts_dir: str, out: str) -> None:
     root = Path(artifacts_dir)
     version, tag, index = os.environ["VERSION"], os.environ.get("TAG", ""), os.environ["INDEX"]
     sums = dict(line.split()[::-1] for line in (root / "dist" / "SHA256SUMS").read_text().splitlines())
-    wheel, sdist = f"mj_viser-{version}-py3-none-any.whl", f"mj_viser-{version}.tar.gz"
+    wheel, sdist = f"ssmjviser-{version}-py3-none-any.whl", f"ssmjviser-{version}.tar.gz"
     for name in (wheel, sdist):
         if hashlib.sha256((root / "dist" / name).read_bytes()).hexdigest() != sums.get(name):
             raise SystemExit(f"{name} does not match SHA256SUMS")

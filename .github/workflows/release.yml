@@ -91,7 +91,7 @@ jobs:
         env:
           MUJOCO_GL: osmesa
           MJ_VISER_REQUIRE_RENDER: "1"
-        run: MJ_VISER_WHEEL="$(ls dist/mj_viser-*.tar.gz)" scripts/smoke_wheel.sh sdist-e2e locked
+        run: MJ_VISER_WHEEL="$(ls dist/ssmjviser-*.tar.gz)" scripts/smoke_wheel.sh sdist-e2e locked
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -138,7 +138,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: testpypi
-      url: https://test.pypi.org/project/mj-viser/${{ needs.guard.outputs.version }}/
+      url: https://test.pypi.org/project/ssmjviser/${{ needs.guard.outputs.version }}/
     permissions:
       id-token: write # Trusted Publishing, in this job only
     steps:
@@ -159,7 +159,7 @@ jobs:
           VERSION: ${{ needs.guard.outputs.version }}
         run: |
           (cd dist && sha256sum -c SHA256SUMS)
-          mkdir upload && cp "dist/mj_viser-$VERSION.tar.gz" "dist/mj_viser-$VERSION-py3-none-any.whl" upload/
+          mkdir upload && cp "dist/ssmjviser-$VERSION.tar.gz" "dist/ssmjviser-$VERSION-py3-none-any.whl" upload/
           ls -l upload/
 
       - name: Publish to TestPyPI
@@ -176,7 +176,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/project/mj-viser/${{ needs.guard.outputs.version }}/
+      url: https://pypi.org/project/ssmjviser/${{ needs.guard.outputs.version }}/
     permissions:
       id-token: write # Trusted Publishing, in this job only
     steps:
@@ -197,7 +197,7 @@ jobs:
           VERSION: ${{ needs.guard.outputs.version }}
         run: |
           (cd dist && sha256sum -c SHA256SUMS)
-          mkdir upload && cp "dist/mj_viser-$VERSION.tar.gz" "dist/mj_viser-$VERSION-py3-none-any.whl" upload/
+          mkdir upload && cp "dist/ssmjviser-$VERSION.tar.gz" "dist/ssmjviser-$VERSION-py3-none-any.whl" upload/
           ls -l upload/
 
       - name: Publish to PyPI
@@ -229,7 +229,7 @@ jobs:
           awk -v v="$VERSION" '$0 ~ "^## " v " " {f=1; next} /^## /{f=0} f' CHANGELOG.md > notes.md
           test -s notes.md
           gh release create "$TAG" --verify-tag --title "mj_viser $VERSION" --notes-file notes.md \
-            "dist/mj_viser-$VERSION-py3-none-any.whl" "dist/mj_viser-$VERSION.tar.gz" dist/SHA256SUMS
+            "dist/ssmjviser-$VERSION-py3-none-any.whl" "dist/ssmjviser-$VERSION.tar.gz" dist/SHA256SUMS
 
   # A user's first install, from the index the release went to, in a fresh environment:
   # the README's quick start must render and exit cleanly. Added to the release report.
@@ -273,11 +273,11 @@ jobs:
           python3 -m venv fresh
           source=()
           if [ "$INDEX" = testpypi ]; then
-            # Dependencies come from PyPI; only mj-viser from TestPyPI.
+            # Dependencies come from PyPI; only ssmjviser from TestPyPI.
             source=(--index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/)
           fi
           for attempt in $(seq 1 10); do  # the simple index can lag the JSON API briefly
-            if fresh/bin/pip install --no-cache-dir "${source[@]}" "mj-viser==$VERSION"; then break; fi
+            if fresh/bin/pip install --no-cache-dir "${source[@]}" "ssmjviser==$VERSION"; then break; fi
             [ "$attempt" = 10 ] && exit 1
             sleep 30
           done

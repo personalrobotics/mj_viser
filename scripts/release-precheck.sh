@@ -30,9 +30,9 @@ fi
 
 echo "[precheck] build once"
 uv build --out-dir "$work/dist" >/dev/null
-wheel="$(ls "$work"/dist/mj_viser-*.whl)"
-sdist="$(ls "$work"/dist/mj_viser-*.tar.gz)"
-(cd "$work/dist" && shasum -a 256 mj_viser-*)
+wheel="$(ls "$work"/dist/ssmjviser-*.whl)"
+sdist="$(ls "$work"/dist/ssmjviser-*.tar.gz)"
+(cd "$work/dist" && shasum -a 256 ssmjviser-*)
 
 echo "[precheck] README as PyPI shows it"
 uv run --no-project --with "readme-renderer[md]==44.0" python scripts/check_readme.py "$work/dist" . >/dev/null

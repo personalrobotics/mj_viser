@@ -17,6 +17,8 @@
   from ssrobot, `from ssrobot import open_bundle` and
   `from ssrobot.mujoco import materialize_world`.
 - The README's quick start serves on a free port and prints its URL.
+- The distribution is named `ssmjviser` (PyPI does not allow `mj-viser`, which is too close
+  to the existing `mjviser`); the import name stays `mj_viser` (#49).
 - The README leads with what mj_viser does, shown in clips captured from real runs, and
   installs from the release wheel; it is ready to be the PyPI project description: the
   build points its relative images and links at the repository, and each is checked from

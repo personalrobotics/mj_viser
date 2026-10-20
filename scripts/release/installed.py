@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Siddhartha Srinivasa
 
-"""After publication: the installed mj-viser runs the README's quick start.
+"""After publication: the installed ssmjviser runs the README's quick start.
 
 Usage: python -I scripts/release/installed.py RELEASE_REPORT_JSON PUBLISHED_JSON
 
-Run with the interpreter of a fresh environment that installed mj-viser from the index.
+Run with the interpreter of a fresh environment that installed ssmjviser from the index.
 Checks that the installed package is the released version, runs the quick start check
 (scripts/e2e/readme.py), and adds it, with PUBLISHED_JSON (scripts/release/published.py:
 the index serves exactly the verified files), to the release report.
@@ -29,9 +29,9 @@ def main(report_path: str, published_path: str) -> None:
     published = json.loads(Path(published_path).read_text())
     if published["version"] != report["version"] or published["files"] != report["artifacts"]:
         raise SystemExit(f"the index's files {published} are not the report's {report['artifacts']}")
-    dist = distribution("mj-viser")
+    dist = distribution("ssmjviser")
     if dist.version != report["version"]:
-        raise SystemExit(f"installed mj-viser {dist.version}, not {report['version']}")
+        raise SystemExit(f"installed ssmjviser {dist.version}, not {report['version']}")
     report["installed_from_index"] = {
         "index": os.environ.get("INDEX", report["index"]),
         "version": dist.version,

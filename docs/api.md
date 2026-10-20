@@ -1,5 +1,7 @@
 # Public API and compatibility
 
+mj_viser is distributed as `ssmjviser` and imported as `mj_viser`.
+
 From 1.0.0, mj_viser follows [Semantic Versioning](https://semver.org/) for the public API
 listed here. Everything else (other modules, other names, anything beginning with `_`) is
 internal and may change in any release.

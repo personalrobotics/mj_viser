@@ -38,7 +38,7 @@ def main(out_dir: str) -> None:
         "trace_channels": check_trace_channels(),
         "trace_images": check_trace_images(model, str(out)),
         "trace_preview": check_trace_preview(model),
-        "versions": {p: version(p) for p in ("mj-viser", "ssrobot", "mujoco", "viser")},
+        "versions": {p: version(p) for p in ("ssmjviser", "ssrobot", "mujoco", "viser")},
     }
     (out / "ssrobot_adapters.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
 
