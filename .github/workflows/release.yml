@@ -1,0 +1,254 @@
+name: Release
+
+# Tag-driven publication (#49); docs/api.md has the version and tag rules, CONTRIBUTING.md
+# the procedure.
+#
+#   vX.Y.ZrcN tag      verify, then publish to TestPyPI and install it back from there
+#   vX.Y.Z tag         verify, then publish to PyPI, create the GitHub Release (which Zenodo
+#                      archives), and install it back from PyPI
+#   manual run         verify only; publishes to TestPyPI only when asked
+#
+# Verification is CI itself (ci.yml, called below) on the tagged commit: it builds the sdist
+# and wheel once and checks the exact wheel on every supported Python, plus the ssrobot
+# lanes, the typed consumer, and the README as PyPI shows it. The sdist is then installed
+# and checked the same way. The publish jobs upload those verified bytes, never a rebuild,
+# with Trusted Publishing: no stored token, and an OIDC credential only in the publish job,
+# inside a protected environment that requires approval.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish_testpypi:
+        description: "Also publish the verified artifacts to TestPyPI"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Third-party actions are pinned to commit SHAs (tag in the trailing comment).
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.decide.outputs.version }}
+      tag: ${{ steps.decide.outputs.tag }}
+      index: ${{ steps.decide.outputs.index }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          python-version: "3.12"
+
+      # The tag object itself, so the guard can see whether it is annotated.
+      - name: Fetch the tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: git fetch --force origin "+${GITHUB_REF}:${GITHUB_REF}"
+
+      - name: Decide what this run may publish
+        id: decide
+        run: uv run --no-project python scripts/release/guard.py "$GITHUB_REF" "$GITHUB_EVENT_NAME" "${{ inputs.publish_testpypi || false }}" | tee -a "$GITHUB_OUTPUT"
+
+  verify:
+    needs: guard
+    uses: ./.github/workflows/ci.yml
+
+  # The source distribution, installed into a fresh environment (built from source there)
+  # and checked by the same end-to-end check as the wheel.
+  sdist:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+
+      - name: Verify artifact hashes
+        run: (cd dist && sha256sum -c SHA256SUMS)
+
+      - name: Install OSMesa
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libosmesa6
+
+      - name: End-to-end check of the installed sdist
+        env:
+          MUJOCO_GL: osmesa
+          MJ_VISER_REQUIRE_RENDER: "1"
+        run: MJ_VISER_WHEEL="$(ls dist/mj_viser-*.tar.gz)" scripts/smoke_wheel.sh sdist-e2e locked
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sdist-e2e
+          path: sdist-e2e/
+          if-no-files-found: error
+
+  # The release's evidence, in one file: what was verified, and what will be uploaded.
+  report:
+    needs: [guard, verify, sdist]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: artifacts/
+
+      - name: Write the release report
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+          TAG: ${{ needs.guard.outputs.tag }}
+          INDEX: ${{ needs.guard.outputs.index }}
+        run: uv run --no-project python scripts/release/report.py artifacts release-report.json
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-report
+          path: release-report.json
+          if-no-files-found: error
+
+  publish-testpypi:
+    needs: [guard, report]
+    if: needs.guard.outputs.index == 'testpypi'
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/mj-viser/${{ needs.guard.outputs.version }}/
+    permissions:
+      id-token: write # Trusted Publishing, in this job only
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+
+      - name: Verify artifact hashes and select the verified distributions
+        run: |
+          (cd dist && sha256sum -c SHA256SUMS)
+          mkdir upload && cp dist/mj_viser-${{ needs.guard.outputs.version }}.tar.gz dist/mj_viser-${{ needs.guard.outputs.version }}-py3-none-any.whl upload/
+          ls -l upload/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: upload/
+
+  publish-pypi:
+    needs: [guard, report]
+    if: needs.guard.outputs.index == 'pypi'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/mj-viser/${{ needs.guard.outputs.version }}/
+    permissions:
+      id-token: write # Trusted Publishing, in this job only
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+
+      - name: Verify artifact hashes and select the verified distributions
+        run: |
+          (cd dist && sha256sum -c SHA256SUMS)
+          mkdir upload && cp dist/mj_viser-${{ needs.guard.outputs.version }}.tar.gz dist/mj_viser-${{ needs.guard.outputs.version }}-py3-none-any.whl upload/
+          ls -l upload/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: upload/
+
+  # Only after PyPI accepted the release; publishing it is what Zenodo archives.
+  github-release:
+    needs: [guard, publish-pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+
+      - name: Create the GitHub Release with the published artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.guard.outputs.version }}
+          TAG: ${{ needs.guard.outputs.tag }}
+        run: |
+          (cd dist && sha256sum -c SHA256SUMS)
+          awk -v v="$VERSION" '$0 ~ "^## " v " " {f=1; next} /^## /{f=0} f' CHANGELOG.md > notes.md
+          test -s notes.md
+          gh release create "$TAG" --verify-tag --title "mj_viser $VERSION" --notes-file notes.md \
+            "dist/mj_viser-$VERSION-py3-none-any.whl" "dist/mj_viser-$VERSION.tar.gz" dist/SHA256SUMS
+
+  # A user's first install, from the index the release went to, in a fresh environment:
+  # the README's quick start must render and exit cleanly. Added to the release report.
+  installed:
+    needs: [guard, publish-testpypi, publish-pypi]
+    if: >-
+      always() && needs.guard.outputs.index != 'none' &&
+      (needs.publish-testpypi.result == 'success' || needs.publish-pypi.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-report
+          path: .
+
+      - name: Install from the index and run the quick start
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+          INDEX: ${{ needs.guard.outputs.index }}
+        run: |
+          python3 -m venv fresh
+          source=()
+          if [ "$INDEX" = testpypi ]; then
+            # Dependencies come from PyPI; only mj-viser from TestPyPI.
+            source=(--index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/)
+          fi
+          for attempt in $(seq 1 20); do  # an index can take minutes to serve a new version
+            if fresh/bin/pip install --no-cache-dir "${source[@]}" "mj-viser==$VERSION"; then break; fi
+            [ "$attempt" = 20 ] && exit 1
+            sleep 30
+          done
+          fresh/bin/python -I scripts/release/installed.py release-report.json
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-report
+          path: release-report.json
+          overwrite: true
+          if-no-files-found: error
