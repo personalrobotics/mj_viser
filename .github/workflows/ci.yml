@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  # The release workflow runs these same jobs on the commit it releases, then publishes
+  # the dist artifact they verified.
+  workflow_call:
   # Nightly: the newest dependency releases on every Python, without waiting for a push.
   schedule:
     - cron: "0 7 * * *"
