@@ -12,7 +12,7 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 wheel="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
-report="${2:-}"
+report="${2:+$(cd "$(dirname "$2")" && pwd)/$(basename "$2")}"  # absolute: the check runs elsewhere
 mypy_version="1.19.1"  # uv.lock's
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
