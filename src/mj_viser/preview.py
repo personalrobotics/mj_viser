@@ -477,4 +477,5 @@ def record_motion(
 
 
 def _caption(lines: list[str]) -> str:
-    return "<br>".join(html.escape(line) for line in lines)
+    # The channel panels' text size, so every panel's text matches.
+    return '<div style="font-size:11px">' + "<br>".join(html.escape(line) for line in lines) + "</div>"

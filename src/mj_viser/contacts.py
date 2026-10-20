@@ -257,7 +257,8 @@ class _ClientContacts:
 
     def _render(self, contacts: ContactSet | None) -> None:
         scale = self.scale_m_per_n
-        self.caption.content = "<br>".join(html.escape(line) for line in describe(contacts, scale))
+        lines = "<br>".join(html.escape(line) for line in describe(contacts, scale))
+        self.caption.content = f'<div style="font-size:11px">{lines}</div>'  # the channel panels' size
         for node in self._nodes.values():
             node.remove()
         self._nodes = {}
